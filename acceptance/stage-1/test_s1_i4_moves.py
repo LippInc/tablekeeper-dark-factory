@@ -125,6 +125,40 @@ def test_a_batch_of_no_ops_keeps_every_value(batch):
     assert bookings(batch.ada) == before
 
 
+MOVE_SCENARIOS = {
+    # a table swap between bookings at different times, and a time move of two bookings
+    "table_swap": ([("SWAPA1", "t_1", "19:00"), ("SWAPB1", "t_2", "21:00")],
+                   [item("SWAPA1", "t_2"), item("SWAPB1", "t_1")],
+                   [("t_1", "19:00"), ("t_2", "21:00")], [("t_2", "19:00"), ("t_1", "21:00")],
+                   ("t_1", "19:00"), ("t_2", "19:30")),
+    "time_move": ([("TIMEC1", "t_3", "18:00"), ("TIMED1", "t_2", "18:00")],
+                  [item("TIMEC1", at="21:30"), item("TIMED1", at="20:00")],
+                  [("t_3", "18:00"), ("t_2", "18:00")], [("t_3", "21:30"), ("t_2", "20:00")],
+                  ("t_3", "18:00"), ("t_2", "20:30")),
+}
+
+
+@pytest.mark.parametrize("scenario", list(MOVE_SCENARIOS))
+def test_a_move_frees_its_old_slots_and_takes_its_new_ones(reset, api, anon, scenario):
+    """R4/R150/R151/R108 (critic C29-B1): after a successful two-item move, GET
+    /availability shows each old slot free and each new slot taken for the right tables;
+    a create on a freed slot is 201 and on a taken slot 409."""
+    seeds, moves, freed, taken, free_create, taken_create = MOVE_SCENARIOS[scenario]
+    reset(fx.fixture(reservations=[seed(ref, table, at) for ref, table, at in seeds]))
+    ada = api().authenticate(fx.ADA["email"], fx.ADA["password"])
+    bob = api().authenticate(fx.BOB["email"], fx.BOB["password"])
+    assert_status(move(ada, *moves), 201)
+    for table, at in freed:
+        assert table in free(anon, at), f"{table} at {at} is still held after the move"
+    for table, at in taken:
+        assert table not in free(anon, at), f"{table} at {at} is not held after the move"
+    for (table, at), status in ((free_create, 201), (taken_create, 409)):
+        resp = bob.post("/reservations", idempotency_key=new_key(), json={
+            "restaurant_id": "r_anker", "table_id": table, "starts_at_local": fx.local(DATE, at),
+            "party_size": 2})
+        assert resp.status_code == status, (table, at, resp.status_code, resp.text[:200])
+
+
 # ---- atomicity (§11) --------------------------------------------------------------------------
 
 def test_an_overlap_with_an_unlisted_booking_changes_nothing(batch):
