@@ -32,12 +32,16 @@ def _reject_constant(name: str) -> None:
     raise ValueError(f"{name} is not JSON")
 
 
-def parse_json_object(raw: bytes) -> dict:
-    """A request body as a JSON object, whatever the Content-Type says (§5)."""
+def parse_json(raw: bytes) -> Any:
+    """A request body as JSON, whatever the Content-Type says (§5)."""
     try:
-        body = json.loads(raw, parse_constant=_reject_constant)
+        return json.loads(raw, parse_constant=_reject_constant)
     except (ValueError, RecursionError):
         raise malformed("the body is not valid JSON") from None
+
+
+def parse_json_object(raw: bytes) -> dict:
+    body = parse_json(raw)
     if not isinstance(body, dict):
         raise malformed("the body must be a JSON object")
     return body
@@ -93,7 +97,7 @@ async def export_state(request: Request) -> Response:
 
 
 async def import_state(request: Request) -> Response:
-    state = snapshot.restore(await json_object(request))
+    state = snapshot.restore(parse_json(await request.body()))
     await _store(request).replace(state)
     return Response(status_code=204)
 

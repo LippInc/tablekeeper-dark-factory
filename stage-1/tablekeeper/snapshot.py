@@ -9,6 +9,7 @@ can migrate it explicitly.
 from __future__ import annotations
 
 from datetime import datetime
+from typing import Any
 
 from . import timeutil
 from .auth import is_hash_record
@@ -48,9 +49,12 @@ def _reservation_record(reservation: Reservation) -> dict:
             "created_at": reservation.created_at.isoformat()}
 
 
-def restore(body: dict) -> State:
-    """A new State holding exactly an export. Every problem is 422 `validation_failed`
-    and changes nothing, since the running state is only replaced after this returns."""
+def restore(body: Any) -> State:
+    """A new State holding exactly an export. Every problem, a body that is not an object
+    included, is 422 `validation_failed` (§10, D20) and changes nothing, since the running
+    state is only replaced after this returns."""
+    if not isinstance(body, dict):
+        raise invalid("the body must be an exported object")
     if body.get("track") != TRACK or not _is_int(body.get("format_version"), FORMAT_VERSION):
         raise invalid(f"track must be {TRACK!r} and format_version {FORMAT_VERSION}")
     data = body.get("state")
