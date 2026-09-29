@@ -22,6 +22,10 @@ MIN_PASSWORD_LENGTH = 8
 # parameters travel inside every hash record, so they can be raised later without
 # invalidating stored passwords.
 SCRYPT_PARAMS = {"n": 2**14, "r": 8, "p": 1}
+# The costliest parameters an imported hash record may carry: hashlib.scrypt's default
+# memory limit, and a bound on the time one login may take.
+MAX_SCRYPT_MEMORY = 32 * 1024 * 1024
+MAX_SCRYPT_PARALLELISM = 4
 _hashing = ThreadPoolExecutor(max_workers=4, thread_name_prefix="password-hash")
 
 
@@ -45,6 +49,20 @@ def _matches(password: str, record: dict) -> bool:
     digest = _scrypt(password, base64.b64decode(record["salt"]),
                      n=record["n"], r=record["r"], p=record["p"])
     return hmac.compare_digest(digest, base64.b64decode(record["hash"]))
+
+
+def is_hash_record(record: dict) -> bool:
+    """Whether `record` is a scrypt hash record this service can verify against."""
+    n, r, p = (record.get(name) for name in ("n", "r", "p"))
+    if record.get("algorithm") != "scrypt" or not all(
+            type(value) is int and value > 0 for value in (n, r, p)):
+        return False
+    if n < 2 or n & (n - 1) or 128 * r * n > MAX_SCRYPT_MEMORY or p > MAX_SCRYPT_PARALLELISM:
+        return False
+    try:
+        return all(base64.b64decode(record[name], validate=True) for name in ("salt", "hash"))
+    except (KeyError, TypeError, ValueError):
+        return False
 
 
 async def hash_password(password: str) -> dict:

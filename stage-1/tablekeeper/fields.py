@@ -135,3 +135,9 @@ class FieldReader:
             raise malformed(self._wrong_type)
         if self._invalid is not None:
             raise invalid(self._invalid)
+
+    def raise_as_invalid(self) -> None:
+        """Raise the first problem as 422 whatever its kind, as an imported state's (§10)."""
+        problem = self._wrong_type or self._invalid
+        if problem is not None:
+            raise invalid(problem)

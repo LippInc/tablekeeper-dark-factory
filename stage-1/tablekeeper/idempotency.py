@@ -28,6 +28,15 @@ def _canonical(body: dict) -> str:
     return json.dumps(body, sort_keys=True, separators=(",", ":"))
 
 
+def is_canonical_request(text: str) -> bool:
+    """Whether `text` is a JSON object in the canonical form receipts store."""
+    try:
+        body = json.loads(text)
+    except (ValueError, RecursionError):
+        return False
+    return isinstance(body, dict) and _canonical(body) == text
+
+
 def original_response(state: State, scope: Scope, body: dict) -> dict | None:
     """The response recorded for a replay of this request, or None on a key's first use.
 

@@ -84,6 +84,17 @@ def resolve(local: datetime, tz: ZoneInfo) -> datetime | None:
     return instant
 
 
+def parse_instant(text: str) -> datetime | None:
+    """An RFC 3339 timestamp with an explicit offset, as a UTC instant."""
+    try:
+        instant = datetime.fromisoformat(text)
+    except ValueError:
+        return None
+    if instant.tzinfo is None or not _supported(instant):
+        return None
+    return instant.astimezone(timezone.utc)
+
+
 def now() -> datetime:
     return datetime.now(timezone.utc)
 

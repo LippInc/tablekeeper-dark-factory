@@ -11,7 +11,7 @@ from starlette.requests import Request
 from starlette.responses import JSONResponse, Response
 from starlette.routing import Route
 
-from . import auth, booking, domain, fixture, idempotency, schedule
+from . import auth, booking, domain, fixture, idempotency, schedule, snapshot
 from .domain import User
 from .errors import ApiError, malformed
 from .fields import FieldReader
@@ -83,6 +83,17 @@ async def health(request: Request) -> Response:
 
 async def reset(request: Request) -> Response:
     state = await fixture.seed(fixture.parse(await json_object(request)))
+    await _store(request).replace(state)
+    return Response(status_code=204)
+
+
+async def export_state(request: Request) -> Response:
+    async with _store(request).transaction() as state:
+        return JsonResponse(snapshot.export(state))
+
+
+async def import_state(request: Request) -> Response:
+    state = snapshot.restore(await json_object(request))
     await _store(request).replace(state)
     return Response(status_code=204)
 
@@ -184,6 +195,8 @@ async def _unexpected(request: Request, exc: Exception) -> Response:
 ROUTES = [
     Route("/health", health, methods=["GET"]),
     Route("/_test/reset", reset, methods=["POST"]),
+    Route("/_test/export", export_state, methods=["GET"]),
+    Route("/_test/import", import_state, methods=["POST"]),
     Route("/auth/signup", signup, methods=["POST"]),
     Route("/auth/login", login, methods=["POST"]),
     Route("/restaurants", list_restaurants, methods=["GET"]),
