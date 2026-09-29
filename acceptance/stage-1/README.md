@@ -16,6 +16,7 @@ room plan's requirement lines and decisions. The verifier seat is the only write
 | `test_s1_i5_export_import.py` | S1-I5 export and import on one service | recipe step 3b |
 | `test_s1_i5_two_containers.py` | S1-I5 export from one container, import into a second | recipe step 3b with `-e TABLEKEEPER_SECOND_URL=http://<second container>:8080` (a second `docker run` of the same image on the run's network); fails without it |
 | `test_s1_i5_snapshot.py` | S1-I5 export under concurrent writes; export and import under 10 s | recipe step 3b, alone; `-rP` prints the measured values |
+| `test_s1_i7_dense.py` | S1-I7 dense-day availability under 50 in flight, equal to a reference, after every writer | recipe step 3b, alone; `-rP` prints the measured values |
 | `container_checks.sh` | S1-I1 image, `PORT`, health within 60 s, RUN.md command | `bash container_checks.sh <stage-dir> <name-prefix> <free-host-port>` (Git Bash, Docker, the `df-harness-runner` image) |
 
 The pytest files use the harness fixtures (`reset`, `api`, `world`, `book`, `base_url`) and
