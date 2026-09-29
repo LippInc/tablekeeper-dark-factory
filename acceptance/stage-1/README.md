@@ -9,6 +9,8 @@ room plan's requirement lines and decisions. The verifier seat is the only write
 | `test_s1_i1_load.py` | S1-I1 bursts and timings | recipe step 3b, alone, with nothing else loading the service; `-rP` prints the measured values |
 | `test_s1_i2_availability.py` | S1-I2 availability over local time | recipe step 3b |
 | `test_s1_i2_load.py` | S1-I2 dense day, alone and 50 in flight | recipe step 3b, alone; `-rP` prints the measured values |
+| `test_s1_i3_bookings.py` | S1-I3 create, idempotency, reads, cancel, PATCH, listed slots bookable | recipe step 3b |
+| `test_s1_i3_races.py` | S1-I3 the four races at 50 in flight | recipe step 3b, alone; `-rP` prints the measured values |
 | `container_checks.sh` | S1-I1 image, `PORT`, health within 60 s, RUN.md command | `bash container_checks.sh <stage-dir> <name-prefix> <free-host-port>` (Git Bash, Docker, the `df-harness-runner` image) |
 
 The pytest files use the harness fixtures (`reset`, `api`, `world`, `book`, `base_url`) and
