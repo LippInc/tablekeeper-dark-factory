@@ -93,9 +93,14 @@ def rfc3339(instant: datetime, tz: ZoneInfo | timezone = timezone.utc) -> str:
     return instant.astimezone(tz).isoformat(timespec="seconds")
 
 
+def wall_time(instant: datetime, tz: ZoneInfo) -> datetime:
+    """The naive wall time the clocks at `tz` show at `instant`."""
+    return instant.astimezone(tz).replace(tzinfo=None)
+
+
 def local_text(instant: datetime, tz: ZoneInfo) -> str:
     """`instant` as the bare local `YYYY-MM-DDTHH:MM` at `tz`."""
-    return instant.astimezone(tz).replace(tzinfo=None).isoformat(timespec="minutes")
+    return wall_time(instant, tz).isoformat(timespec="minutes")
 
 
 def hhmm(value: time) -> str:

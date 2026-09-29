@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import json
+from collections.abc import Callable
 from typing import Any
 
 from starlette.applications import Starlette
@@ -10,10 +11,11 @@ from starlette.requests import Request
 from starlette.responses import JSONResponse, Response
 from starlette.routing import Route
 
-from . import auth, domain, fixture, schedule
+from . import auth, booking, domain, fixture, idempotency, schedule
+from .domain import User
 from .errors import ApiError, malformed
 from .fields import FieldReader
-from .store import Store
+from .store import State, Store
 
 
 class JsonResponse(JSONResponse):
@@ -30,10 +32,10 @@ def _reject_constant(name: str) -> None:
     raise ValueError(f"{name} is not JSON")
 
 
-async def json_object(request: Request) -> dict:
-    """The request body as a JSON object, whatever the Content-Type says (§5)."""
+def parse_json_object(raw: bytes) -> dict:
+    """A request body as a JSON object, whatever the Content-Type says (§5)."""
     try:
-        body = json.loads(await request.body(), parse_constant=_reject_constant)
+        body = json.loads(raw, parse_constant=_reject_constant)
     except (ValueError, RecursionError):
         raise malformed("the body is not valid JSON") from None
     if not isinstance(body, dict):
@@ -41,8 +43,36 @@ async def json_object(request: Request) -> dict:
     return body
 
 
+async def json_object(request: Request) -> dict:
+    return parse_json_object(await request.body())
+
+
 def _store(request: Request) -> Store:
     return request.app.state.store
+
+
+def _caller(request: Request, state: State) -> User:
+    return auth.authenticate(state, request.headers.get("authorization"))
+
+
+async def _keyed_write(request: Request,
+                       operation: Callable[[State, User, dict], dict]) -> Response:
+    """A write under an `Idempotency-Key` (§7): the first use runs `operation` and answers
+    201; a replay answers 200 with the original response and changes nothing.
+
+    Precedence (D3): token, body, key, replay or reuse, then the operation's own checks.
+    """
+    raw = await request.body()
+    async with _store(request).transaction() as state:
+        user = _caller(request, state)
+        body = parse_json_object(raw)
+        scope = (user.id, request.method, request.url.path, idempotency.read_key(request.headers))
+        original = idempotency.original_response(state, scope, body)
+        if original is not None:
+            return JsonResponse(original)
+        response = operation(state, user, body)
+        idempotency.record(state, scope, body, response)
+        return JsonResponse(response, status_code=201)
 
 
 # ---- test control and health ------------------------------------------------
@@ -95,17 +125,35 @@ async def get_availability(request: Request) -> Response:
 
 # ---- reservations -----------------------------------------------------------
 
+async def create_reservation(request: Request) -> Response:
+    return await _keyed_write(request, booking.create)
+
+
 async def list_reservations(request: Request) -> Response:
     async with _store(request).transaction() as state:
-        user = auth.authenticate(state, request.headers.get("authorization"))
+        user = _caller(request, state)
         return JsonResponse({"reservations": domain.reservations_of(state, user)})
 
 
 async def get_reservation(request: Request) -> Response:
     async with _store(request).transaction() as state:
-        user = auth.authenticate(state, request.headers.get("authorization"))
+        user = _caller(request, state)
         reservation = domain.own_reservation(state, user, request.path_params["reference"])
         return JsonResponse(domain.show(state, reservation))
+
+
+async def amend_reservation(request: Request) -> Response:
+    raw = await request.body()
+    async with _store(request).transaction() as state:
+        user = _caller(request, state)
+        body = parse_json_object(raw)
+        return JsonResponse(booking.amend(state, user, request.path_params["reference"], body))
+
+
+async def cancel_reservation(request: Request) -> Response:
+    async with _store(request).transaction() as state:
+        user = _caller(request, state)
+        return JsonResponse(booking.cancel(state, user, request.path_params["reference"]))
 
 
 # ---- errors -----------------------------------------------------------------
@@ -138,7 +186,10 @@ ROUTES = [
     Route("/restaurants/{restaurant_id}", get_restaurant, methods=["GET"]),
     Route("/availability", get_availability, methods=["GET"]),
     Route("/reservations", list_reservations, methods=["GET"]),
+    Route("/reservations", create_reservation, methods=["POST"]),
     Route("/reservations/{reference}", get_reservation, methods=["GET"]),
+    Route("/reservations/{reference}", amend_reservation, methods=["PATCH"]),
+    Route("/reservations/{reference}/cancel", cancel_reservation, methods=["POST"]),
 ]
 
 

@@ -28,6 +28,10 @@ class Window:
         """Whether a reservation from `starts_at` ends by closing time."""
         return starts_at + duration <= self.closes_at
 
+    def on_grid(self, local: datetime, slot_minutes: int) -> bool:
+        """Whether the wall time `local` is a whole number of slots after opening."""
+        return (local - self.opens) % timedelta(minutes=slot_minutes) == timedelta(0)
+
 
 def windows(restaurant: Restaurant, day: date) -> list[Window]:
     """The restaurant's opening windows on `day`, earliest first; none on a closed day."""
@@ -40,6 +44,12 @@ def windows(restaurant: Restaurant, day: date) -> list[Window]:
         found.append(Window(opens=datetime.combine(day, entry.opens), closes=closes,
                             closes_at=timeutil.instant_of(closes, restaurant.zone)))
     return found
+
+
+def window_at(restaurant: Restaurant, local: datetime) -> Window | None:
+    """The opening window whose wall-clock hours contain `local`, if any."""
+    return next((window for window in windows(restaurant, local.date())
+                 if window.opens <= local < window.closes), None)
 
 
 def slots(restaurant: Restaurant, day: date) -> list[datetime]:

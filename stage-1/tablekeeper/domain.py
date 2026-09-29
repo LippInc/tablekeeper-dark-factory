@@ -14,6 +14,7 @@ if TYPE_CHECKING:
     from .store import State
 
 CONFIRMED = "confirmed"
+CANCELLED = "cancelled"
 WEEKDAYS = ("mon", "tue", "wed", "thu", "fri", "sat", "sun")  # date.weekday() order
 
 
@@ -99,6 +100,16 @@ def read_party_size(reader: FieldReader, obj: dict, path: str) -> int | None:
         reader.reject(at(path, "party_size"), "must be an integer of at least 1")
         return None
     return value
+
+
+def read_local(reader: FieldReader, obj: dict, path: str) -> datetime | None:
+    """`starts_at_local`: a string (400 otherwise) holding a bare local `YYYY-MM-DDTHH:MM`
+    with no seconds and no offset (422 otherwise, §5)."""
+    text = reader.read(obj, "starts_at_local", "string", path)
+    local = None if text is None else timeutil.parse_local(text)
+    if text is not None and local is None:
+        reader.reject(at(path, "starts_at_local"), "must be a bare local YYYY-MM-DDTHH:MM")
+    return local
 
 
 # ---- views -----------------------------------------------------------------

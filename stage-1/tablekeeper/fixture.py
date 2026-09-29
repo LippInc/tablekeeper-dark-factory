@@ -16,7 +16,7 @@ from itertools import pairwise
 from . import timeutil
 from .auth import hash_password, is_email
 from .domain import (CONFIRMED, WEEKDAYS, OpeningHours, Reservation, Restaurant, Table, User,
-                     overlaps, read_party_size)
+                     overlaps, read_local, read_party_size)
 from .fields import FieldReader, at
 from .store import State, email_key
 
@@ -53,7 +53,7 @@ async def seed(fixture: Fixture) -> State:
     hashes = await asyncio.gather(*(hash_password(u.password) for u in fixture.users))
     state = State(restaurants=fixture.restaurants)
     for reservation in fixture.reservations:
-        state.add_reservation(reservation)
+        state.put_reservation(reservation)
     for spec, password_hash in zip(fixture.users, hashes):
         state.add_user(User(id=spec.id, email=spec.email, display_name=spec.display_name,
                             password_hash=password_hash))
@@ -164,7 +164,7 @@ def _reservations(reader: FieldReader, body: dict, user_ids: set[str],
         user_id = reader.identifier(item, "user_id", path)
         restaurant_id = reader.identifier(item, "restaurant_id", path)
         table_id = reader.identifier(item, "table_id", path)
-        starts_at_local = reader.read(item, "starts_at_local", "string", path)
+        local = read_local(reader, item, path)
         party_size = read_party_size(reader, item, path)
         if reservation_id in ids:
             reader.reject(at(path, "id"), "is not unique")
@@ -180,12 +180,10 @@ def _reservations(reader: FieldReader, body: dict, user_ids: set[str],
         elif restaurant is not None and table_id is not None and restaurant.table(table_id) is None:
             reader.reject(at(path, "table_id"), "is not a table of that restaurant")
         starts_at = None
-        if starts_at_local is not None and restaurant is not None:
-            local = timeutil.parse_local(starts_at_local)
-            starts_at = None if local is None else timeutil.resolve(local, restaurant.zone)
+        if local is not None and restaurant is not None:
+            starts_at = timeutil.resolve(local, restaurant.zone)
             if starts_at is None:
-                reader.reject(at(path, "starts_at_local"),
-                              "must be an existing local YYYY-MM-DDTHH:MM")
+                reader.reject(at(path, "starts_at_local"), "is a local time that does not exist")
         if None not in (reservation_id, reference, user_id, table_id, starts_at, party_size):
             ids.add(reservation_id)
             references.add(reference)

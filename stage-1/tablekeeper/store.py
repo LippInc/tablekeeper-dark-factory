@@ -8,10 +8,24 @@ from dataclasses import dataclass, field
 
 from .domain import CONFIRMED, Reservation, Restaurant, User
 
+# An idempotency scope: (user id, method, path, key) (§7).
+Scope = tuple[str, str, str, str]
+
 
 def email_key(email: str) -> str:
     """Emails compare without regard to case."""
     return email.casefold()
+
+
+@dataclass(frozen=True)
+class Receipt:
+    """A completed keyed write: its request body (canonical JSON) and original response."""
+    request: str
+    response: dict
+
+
+def _table_key(reservation: Reservation) -> tuple[str, str]:
+    return reservation.restaurant_id, reservation.table_id
 
 
 @dataclass
@@ -23,6 +37,7 @@ class State:
     reservations: dict[str, Reservation] = field(default_factory=dict)  # by reference, creation order
     # Confirmed bookings per (restaurant id, table id), by reference: the occupancy index.
     table_bookings: dict[tuple[str, str], dict[str, Reservation]] = field(default_factory=dict)
+    receipts: dict[Scope, Receipt] = field(default_factory=dict)
 
     def add_user(self, user: User) -> None:
         self.users[user.id] = user
@@ -32,11 +47,15 @@ class State:
         user_id = self.user_ids_by_email.get(email_key(email))
         return None if user_id is None else self.users[user_id]
 
-    def add_reservation(self, reservation: Reservation) -> None:
+    def put_reservation(self, reservation: Reservation) -> None:
+        """Add a reservation, or replace the one with its reference, keeping the occupancy
+        index current."""
+        previous = self.reservations.get(reservation.reference)
+        if previous is not None:
+            self.table_bookings.get(_table_key(previous), {}).pop(previous.reference, None)
         self.reservations[reservation.reference] = reservation
         if reservation.status == CONFIRMED:
-            key = (reservation.restaurant_id, reservation.table_id)
-            self.table_bookings.setdefault(key, {})[reservation.reference] = reservation
+            self.table_bookings.setdefault(_table_key(reservation), {})[reservation.reference] = reservation
 
     def confirmed_on(self, restaurant_id: str, table_id: str) -> Iterable[Reservation]:
         return self.table_bookings.get((restaurant_id, table_id), {}).values()
