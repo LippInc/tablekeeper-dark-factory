@@ -1,4 +1,4 @@
-"""Creating, amending and cancelling bookings (§1, §8, §9).
+"""Creating, amending, moving and cancelling bookings (§1, §8, §9, §11).
 
 Every change to a booking's table, time or party goes through `commit`, which checks the
 resulting bookings for overlaps and stores all of them or none.
@@ -13,12 +13,13 @@ from datetime import datetime, timedelta
 from . import schedule, timeutil
 from .domain import (CANCELLED, CONFIRMED, Reservation, Restaurant, User, find_restaurant,
                      overlaps, own_reservation, read_local, read_party_size, show)
-from .errors import ApiError
-from .fields import FieldReader
+from .errors import ApiError, invalid
+from .fields import MAX_ID_LENGTH, FieldReader, at
 from .store import State, fresh
 
 REFERENCE_ALPHABET = string.ascii_uppercase + string.digits
 REFERENCE_LENGTH = 8
+MAX_MOVES = 8
 
 
 @dataclass(frozen=True)
@@ -134,6 +135,39 @@ def amend(state: State, user: User, reference: str, body: dict) -> dict:
     booking = amended(state, current, read_changes(reader, body, "", partial=True), reader)
     commit(state, [booking])
     return show(state, booking)
+
+
+def _read_moves(body: dict) -> list[tuple[str, dict]]:
+    """The move items with their display paths. Any shape problem is 422 (§11): `moves`
+    must be a list of 1 to 8 objects whose `reference`s are distinct IDs."""
+    moves = body.get("moves")
+    if not isinstance(moves, list) or not 1 <= len(moves) <= MAX_MOVES:
+        raise invalid(f"moves must be a list of 1 to {MAX_MOVES} objects")
+    references = set()
+    for index, item in enumerate(moves):
+        reference = item.get("reference") if isinstance(item, dict) else None
+        if not isinstance(reference, str) or not 1 <= len(reference) <= MAX_ID_LENGTH:
+            raise invalid(f"{at('moves', index)} must be an object with a string reference")
+        if reference in references:
+            raise invalid(f"{at('moves', index)}.reference repeats an earlier move")
+        references.add(reference)
+    return [(at("moves", index), item) for index, item in enumerate(moves)]
+
+
+def move(state: State, user: User, body: dict) -> dict:
+    """Amend several of the caller's bookings at one restaurant together, or none (§11).
+
+    Items are judged in input order (D9); overlaps are judged on the whole resulting set.
+    """
+    bookings: list[Reservation] = []
+    for path, item in _read_moves(body):
+        current = own_reservation(state, user, item["reference"])
+        if bookings and current.restaurant_id != bookings[0].restaurant_id:
+            raise invalid(f"{path} is at a different restaurant from the first move")
+        reader = FieldReader()
+        bookings.append(amended(state, current, read_changes(reader, item, path, partial=True), reader))
+    commit(state, bookings)
+    return {"reservations": [show(state, booking) for booking in bookings]}
 
 
 def cancel(state: State, user: User, reference: str) -> dict:

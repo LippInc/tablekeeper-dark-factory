@@ -129,6 +129,10 @@ async def create_reservation(request: Request) -> Response:
     return await _keyed_write(request, booking.create)
 
 
+async def move_reservations(request: Request) -> Response:
+    return await _keyed_write(request, booking.move)
+
+
 async def list_reservations(request: Request) -> Response:
     async with _store(request).transaction() as state:
         user = _caller(request, state)
@@ -190,6 +194,7 @@ ROUTES = [
     Route("/reservations/{reference}", get_reservation, methods=["GET"]),
     Route("/reservations/{reference}", amend_reservation, methods=["PATCH"]),
     Route("/reservations/{reference}/cancel", cancel_reservation, methods=["POST"]),
+    Route("/reservation-moves", move_reservations, methods=["POST"]),
 ]
 
 
