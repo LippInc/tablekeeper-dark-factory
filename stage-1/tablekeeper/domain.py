@@ -105,11 +105,8 @@ def read_party_size(reader: FieldReader, obj: dict, path: str) -> int | None:
 def read_local(reader: FieldReader, obj: dict, path: str) -> datetime | None:
     """`starts_at_local`: a string (400 otherwise) holding a bare local `YYYY-MM-DDTHH:MM`
     with no seconds and no offset (422 otherwise, §5)."""
-    text = reader.read(obj, "starts_at_local", "string", path)
-    local = None if text is None else timeutil.parse_local(text)
-    if text is not None and local is None:
-        reader.reject(at(path, "starts_at_local"), "must be a bare local YYYY-MM-DDTHH:MM")
-    return local
+    return reader.parsed(obj, "starts_at_local", path, timeutil.parse_local,
+                         "must be a bare local YYYY-MM-DDTHH:MM")
 
 
 # ---- views -----------------------------------------------------------------
@@ -134,7 +131,9 @@ def restaurant_detail(restaurant: Restaurant) -> dict:
     }
 
 
-def reservation_view(reservation: Reservation, restaurant: Restaurant) -> dict:
+def show(state: State, reservation: Reservation) -> dict:
+    """A reservation as every reservation endpoint returns it (§8)."""
+    restaurant = state.restaurants[reservation.restaurant_id]
     zone = restaurant.zone
     return {
         "reservation_id": reservation.id,
@@ -165,10 +164,6 @@ def own_reservation(state: State, user: User, reference: str) -> Reservation:
     if reservation is None or reservation.user_id != user.id:
         raise not_found(f"no reservation {reference!r}")
     return reservation
-
-
-def show(state: State, reservation: Reservation) -> dict:
-    return reservation_view(reservation, state.restaurants[reservation.restaurant_id])
 
 
 def reservations_of(state: State, user: User) -> list[dict]:

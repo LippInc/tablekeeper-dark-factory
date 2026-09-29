@@ -8,7 +8,6 @@ can migrate it explicitly.
 """
 from __future__ import annotations
 
-from datetime import datetime
 from typing import Any
 
 from . import timeutil
@@ -99,22 +98,15 @@ def _reservations(reader: FieldReader, records: Records, data: dict) -> list[Res
     reservations = []
     for path, item in reader.objects(data, "reservations"):
         booking = records.booking(item, path)
-        starts_at = _instant(reader, item, "starts_at", path)
-        created_at = _instant(reader, item, "created_at", path)
+        starts_at, created_at = (reader.parsed(item, name, path, timeutil.parse_instant,
+                                               "must be a timestamp with an offset")
+                                 for name in ("starts_at", "created_at"))
         status = reader.read(item, "status", "string", path)
         if status is not None and status not in STATUSES:
             reader.reject(at(path, "status"), f"must be one of {', '.join(STATUSES)}")
         elif None not in (booking, starts_at, created_at, status):
             reservations.append(booking.reservation(starts_at, status, created_at))
     return reservations
-
-
-def _instant(reader: FieldReader, item: dict, name: str, path: str) -> datetime | None:
-    text = reader.read(item, name, "string", path)
-    instant = None if text is None else timeutil.parse_instant(text)
-    if text is not None and instant is None:
-        reader.reject(at(path, name), "must be a timestamp with an offset")
-    return instant
 
 
 def _receipts(reader: FieldReader, data: dict, user_ids: set[str]) -> dict[Scope, Receipt]:

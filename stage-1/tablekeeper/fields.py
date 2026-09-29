@@ -10,9 +10,9 @@ to them.
 from __future__ import annotations
 
 import re
-from collections.abc import Mapping
+from collections.abc import Callable, Mapping
 from datetime import date
-from typing import Any
+from typing import Any, TypeVar
 
 from . import timeutil
 from .errors import invalid, malformed
@@ -20,6 +20,13 @@ from .errors import invalid, malformed
 MAX_ID_LENGTH = 64
 
 _DIGITS = re.compile(r"[0-9]+")
+
+T = TypeVar("T")
+
+
+def is_identifier(value: str) -> bool:
+    """An opaque ID is a string of 1 to 64 characters (§3.4)."""
+    return 1 <= len(value) <= MAX_ID_LENGTH
 
 _JSON_TYPES = {"string": str, "number": (int, float), "array": list, "object": dict}
 
@@ -80,7 +87,7 @@ class FieldReader:
         return self._identifier(at(path, name), self.read(obj, name, "string", path))
 
     def _identifier(self, where: str, value: str | None) -> str | None:
-        if value is not None and not 1 <= len(value) <= MAX_ID_LENGTH:
+        if value is not None and not is_identifier(value):
             self.reject(where, f"must be 1 to {MAX_ID_LENGTH} characters")
             return None
         return value
@@ -95,12 +102,19 @@ class FieldReader:
     def identifier_param(self, params: Mapping[str, str], name: str) -> str | None:
         return self._identifier(name, self.param(params, name))
 
+    def parsed(self, obj: Mapping[str, Any], name: str, path: str,
+               parse: Callable[[str], T | None], reason: str) -> T | None:
+        """A string field (or query parameter) turned into a value by `parse`, which
+        returns None for a string that breaks the field's format (422 with `reason`)."""
+        text = self.read(obj, name, "string", path)
+        value = None if text is None else parse(text)
+        if text is not None and value is None:
+            self.reject(at(path, name), reason)
+        return value
+
     def date_param(self, params: Mapping[str, str], name: str) -> date | None:
-        value = self.param(params, name)
-        day = None if value is None else timeutil.parse_date(value)
-        if value is not None and day is None:
-            self.reject(name, "must be a calendar date YYYY-MM-DD")
-        return day
+        return self.parsed(params, name, "", timeutil.parse_date,
+                           "must be a calendar date YYYY-MM-DD")
 
     def integer_param(self, params: Mapping[str, str], name: str, *,
                       minimum: int) -> int | None:

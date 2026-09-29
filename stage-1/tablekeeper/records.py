@@ -9,11 +9,11 @@ from __future__ import annotations
 
 import re
 from dataclasses import dataclass
-from datetime import datetime, time
+from datetime import datetime
 from itertools import pairwise
 
 from . import timeutil
-from .auth import is_email
+from .auth import read_identity
 from .domain import (CONFIRMED, WEEKDAYS, OpeningHours, Reservation, Restaurant, Table,
                      overlaps, read_party_size)
 from .fields import FieldReader, at
@@ -58,16 +58,11 @@ class Records:
     def account(self, item: dict, path: str) -> Account | None:
         reader = self.reader
         user_id = reader.identifier(item, "id", path)
-        email = reader.read(item, "email", "string", path)
-        display_name = reader.read(item, "display_name", "string", path)
+        email, display_name = read_identity(reader, item, path)
         if user_id in self.user_ids:
             reader.reject(at(path, "id"), "is not unique")
-        elif email is not None and not is_email(email):
-            reader.reject(at(path, "email"), "must have the form local@domain")
         elif email is not None and email_key(email) in self._emails:
             reader.reject(at(path, "email"), "is not unique")
-        elif display_name == "":
-            reader.reject(at(path, "display_name"), "must not be empty")
         elif None not in (user_id, email, display_name):
             self.user_ids.add(user_id)
             self._emails.add(email_key(email))
@@ -104,8 +99,9 @@ class Records:
         entries: list[OpeningHours] = []
         for where, item in reader.objects(restaurant, "opening_hours", path):
             weekday = reader.read(item, "weekday", "string", where)
-            opens = self._time_of_day(item, "opens", where)
-            closes = self._time_of_day(item, "closes", where)
+            opens, closes = (reader.parsed(item, name, where, timeutil.parse_hhmm,
+                                           "must be a 24-hour HH:MM time")
+                             for name in ("opens", "closes"))
             if weekday is not None and weekday not in WEEKDAYS:
                 reader.reject(at(where, "weekday"), f"must be one of {' '.join(WEEKDAYS)}")
             elif opens is not None and closes is not None and closes <= opens:
@@ -117,13 +113,6 @@ class Records:
             if any(later.opens < earlier.closes for earlier, later in pairwise(day)):
                 reader.reject(at(path, "opening_hours"), f"has overlapping entries on {weekday}")
         return tuple(entries)
-
-    def _time_of_day(self, item: dict, name: str, path: str) -> time | None:
-        text = self.reader.read(item, name, "string", path)
-        value = None if text is None else timeutil.parse_hhmm(text)
-        if text is not None and value is None:
-            self.reader.reject(at(path, name), "must be a 24-hour HH:MM time")
-        return value
 
     def _tables(self, restaurant: dict, path: str) -> tuple[Table, ...]:
         reader = self.reader

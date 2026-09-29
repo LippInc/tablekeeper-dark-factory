@@ -186,14 +186,13 @@ async def _api_error(request: Request, exc: ApiError) -> Response:
 
 async def _http_error(request: Request, exc: HTTPException) -> Response:
     """The router's own refusals (unknown path, unsupported method) in the §5 shape."""
-    code = _HTTP_ERROR_CODES.get(exc.status_code, "http_error")
-    return JsonResponse({"error": {"code": code, "message": exc.detail}},
-                        status_code=exc.status_code, headers=exc.headers)
+    error = ApiError(exc.status_code, _HTTP_ERROR_CODES.get(exc.status_code, "http_error"),
+                     exc.detail)
+    return JsonResponse(error.body(), status_code=error.status, headers=exc.headers)
 
 
 async def _unexpected(request: Request, exc: Exception) -> Response:
-    return JsonResponse({"error": {"code": "internal_error", "message": "unexpected error"}},
-                        status_code=500)
+    return await _api_error(request, ApiError(500, "internal_error", "unexpected error"))
 
 
 ROUTES = [

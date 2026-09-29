@@ -12,7 +12,7 @@ from concurrent.futures import ThreadPoolExecutor
 
 from .domain import User
 from .errors import ApiError, unauthenticated
-from .fields import FieldReader
+from .fields import FieldReader, at
 from .store import State, Store, fresh
 
 EMAIL = re.compile(r"[^@\s]+@[^@\s]+")
@@ -76,21 +76,26 @@ async def _password_matches(password: str, record: dict) -> bool:
 
 # ---- requests ---------------------------------------------------------------
 
-def is_email(value: str) -> bool:
-    return EMAIL.fullmatch(value) is not None
+def read_identity(reader: FieldReader, obj: dict, path: str = "") -> tuple[str | None, str | None]:
+    """An account's `email` and `display_name`, by the rules every account follows,
+    whether it signs up or is seeded or imported (§4, §6)."""
+    email = reader.read(obj, "email", "string", path)
+    display_name = reader.read(obj, "display_name", "string", path)
+    if email is not None and not EMAIL.fullmatch(email):
+        reader.reject(at(path, "email"), "must have the form local@domain")
+        email = None
+    if display_name == "":
+        reader.reject(at(path, "display_name"), "must not be empty")
+        display_name = None
+    return email, display_name
 
 
 def _read_signup(body: dict) -> tuple[str, str, str]:
     reader = FieldReader()
-    email = reader.read(body, "email", "string")
+    email, display_name = read_identity(reader, body)
     password = reader.read(body, "password", "string")
-    display_name = reader.read(body, "display_name", "string")
-    if email is not None and not is_email(email):
-        reader.reject("email", "must have the form local@domain")
     if password is not None and len(password) < MIN_PASSWORD_LENGTH:
         reader.reject("password", f"must be at least {MIN_PASSWORD_LENGTH} characters")
-    if display_name == "":
-        reader.reject("display_name", "must not be empty")
     reader.raise_first()
     return email, password, display_name
 

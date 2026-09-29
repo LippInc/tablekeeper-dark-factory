@@ -13,8 +13,8 @@ from datetime import datetime, timedelta
 from . import schedule, timeutil
 from .domain import (CANCELLED, CONFIRMED, Reservation, Restaurant, User, find_restaurant,
                      overlaps, own_reservation, read_local, read_party_size, show)
-from .errors import ApiError, invalid
-from .fields import MAX_ID_LENGTH, FieldReader, at
+from .errors import ApiError, invalid, not_found
+from .fields import FieldReader, at, is_identifier
 from .store import State, fresh
 
 REFERENCE_ALPHABET = string.ascii_uppercase + string.digits
@@ -48,7 +48,7 @@ def _start(restaurant: Restaurant, table_id: str, local: datetime, party_size: i
     """The UTC start of a booking the restaurant's rules allow, checked in D5 order."""
     table = restaurant.table(table_id)
     if table is None:
-        raise ApiError(404, "not_found", f"no table {table_id!r} at this restaurant")
+        raise not_found(f"no table {table_id!r} at this restaurant")
     starts_at = timeutil.resolve(local, restaurant.zone)
     if starts_at is None:
         raise ApiError(422, "invalid_local_time", "that local time does not exist")
@@ -146,7 +146,7 @@ def _read_moves(body: dict) -> list[tuple[str, dict]]:
     references = set()
     for index, item in enumerate(moves):
         reference = item.get("reference") if isinstance(item, dict) else None
-        if not isinstance(reference, str) or not 1 <= len(reference) <= MAX_ID_LENGTH:
+        if not isinstance(reference, str) or not is_identifier(reference):
             raise invalid(f"{at('moves', index)} must be an object with a string reference")
         if reference in references:
             raise invalid(f"{at('moves', index)}.reference repeats an earlier move")
