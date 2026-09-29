@@ -76,20 +76,21 @@ class Reservation:
     created_at: datetime  # UTC
 
 
-def overlaps(a: datetime, b: datetime, duration: timedelta) -> bool:
-    """Whether bookings on one table starting at instants `a` and `b` share any time.
+def clash_window(offset: timedelta, duration: timedelta) -> tuple[timedelta, timedelta]:
+    """The open interval of start offsets whose booking shares time with one starting at
+    `offset`, all offsets measured from one common instant.
 
-    Each occupies the half-open [start, start + duration), and every booking at a
-    restaurant lasts the same `duration`, so two overlap exactly when their starts are
-    less than `duration` apart.
+    Each booking occupies the half-open [start, start + duration), and every booking at a
+    restaurant lasts the same `duration`, so two share time exactly when their starts are
+    less than `duration` apart. Offsets, unlike instants, never leave a datetime's range.
     """
-    return abs(a - b) < duration
+    return offset - duration, offset + duration
 
 
-def is_free(state: State, restaurant: Restaurant, table_id: str, starts_at: datetime) -> bool:
-    """Whether no confirmed booking holds the table during a booking from `starts_at`."""
-    return not any(overlaps(starts_at, booked.starts_at, restaurant.duration)
-                   for booked in state.confirmed_on(restaurant.id, table_id))
+def overlaps(a: datetime, b: datetime, duration: timedelta) -> bool:
+    """Whether bookings on one table starting at instants `a` and `b` share any time."""
+    low, high = clash_window(b - a, duration)
+    return low < timedelta(0) < high
 
 
 def read_party_size(reader: FieldReader, obj: dict, path: str) -> int | None:

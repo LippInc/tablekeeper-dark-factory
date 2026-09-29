@@ -7,15 +7,18 @@ the window's `closes`.
 """
 from __future__ import annotations
 
+from bisect import bisect_left, bisect_right
 from dataclasses import dataclass
-from datetime import date, datetime, timedelta
+from datetime import date, datetime, timedelta, timezone
 from typing import TYPE_CHECKING
 
 from . import timeutil
-from .domain import WEEKDAYS, Restaurant, is_free
+from .domain import WEEKDAYS, Restaurant, clash_window
 
 if TYPE_CHECKING:
     from .store import State
+
+_EPOCH = datetime(1970, 1, 1, tzinfo=timezone.utc)  # the common origin of slot and booking offsets
 
 
 @dataclass(frozen=True)
@@ -54,7 +57,8 @@ def window_at(restaurant: Restaurant, local: datetime) -> Window | None:
 
 def slots(restaurant: Restaurant, day: date) -> list[datetime]:
     """The UTC instant of every start a booking may take on `day`, window by window,
-    each wall time once."""
+    each wall time once. Windows follow one another and a later wall time is never an
+    earlier instant, so the instants ascend."""
     step = timedelta(minutes=restaurant.slot_minutes)
     found = []
     for window in windows(restaurant, day):
@@ -70,7 +74,10 @@ def slots(restaurant: Restaurant, day: date) -> list[datetime]:
 def availability(state: State, restaurant: Restaurant, day: date, party_size: int) -> dict:
     """Every slot on `day` with the tables, in fixture order, that seat the party and are
     free for a whole booking from that slot. A slot with no such table is still listed."""
+    starts = slots(restaurant, day)
+    offsets = [starts_at - _EPOCH for starts_at in starts]
     tables = [table for table in restaurant.tables if table.capacity >= party_size]
+    taken = [_taken_slots(state, restaurant, table.id, offsets) for table in tables]
     zone = restaurant.zone
     return {
         "restaurant_id": restaurant.id,
@@ -79,7 +86,21 @@ def availability(state: State, restaurant: Restaurant, day: date, party_size: in
         "slots": [
             {"starts_at_local": timeutil.local_text(starts_at, zone),
              "starts_at": timeutil.rfc3339(starts_at, zone),
-             "available_table_ids": [table.id for table in tables
-                                     if is_free(state, restaurant, table.id, starts_at)]}
-            for starts_at in slots(restaurant, day)],
+             "available_table_ids": [table.id for table, table_taken in zip(tables, taken)
+                                     if not table_taken[index]]}
+            for index, starts_at in enumerate(starts)],
     }
+
+
+def _taken_slots(state: State, restaurant: Restaurant, table_id: str,
+                 offsets: list[timedelta]) -> bytearray:
+    """Marks, per slot, whether a confirmed booking holds the table for part of a booking
+    from that slot. Each booking marks the slots inside its clash window, found by bisection
+    in the ascending `offsets`, so the cost grows with the table's bookings, not with them
+    times the slots."""
+    taken = bytearray(len(offsets))
+    for booked in state.confirmed_on(restaurant.id, table_id):
+        low, high = clash_window(booked.starts_at - _EPOCH, restaurant.duration)
+        first, last = bisect_right(offsets, low), bisect_left(offsets, high)
+        taken[first:last] = b"\x01" * (last - first)
+    return taken
