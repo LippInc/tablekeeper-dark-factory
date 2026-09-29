@@ -15,12 +15,11 @@ from itertools import pairwise
 
 from . import timeutil
 from .auth import hash_password, is_email
-from .domain import (CONFIRMED, OpeningHours, Reservation, Restaurant, Table, User, overlaps,
-                     read_party_size)
+from .domain import (CONFIRMED, WEEKDAYS, OpeningHours, Reservation, Restaurant, Table, User,
+                     overlaps, read_party_size)
 from .fields import FieldReader, at
 from .store import State, email_key
 
-WEEKDAYS = ("mon", "tue", "wed", "thu", "fri", "sat", "sun")
 REFERENCE = re.compile(r"[A-Z0-9]{6,12}")
 
 
@@ -52,8 +51,9 @@ def parse(body: dict) -> Fixture:
 async def seed(fixture: Fixture) -> State:
     """A State holding exactly the fixture; seeded passwords are hashed here."""
     hashes = await asyncio.gather(*(hash_password(u.password) for u in fixture.users))
-    state = State(restaurants=fixture.restaurants,
-                  reservations={r.reference: r for r in fixture.reservations})
+    state = State(restaurants=fixture.restaurants)
+    for reservation in fixture.reservations:
+        state.add_reservation(reservation)
     for spec, password_hash in zip(fixture.users, hashes):
         state.add_user(User(id=spec.id, email=spec.email, display_name=spec.display_name,
                             password_hash=password_hash))
@@ -206,5 +206,5 @@ def _reject_overlaps(reader: FieldReader, reservations: list[Reservation],
     for (restaurant_id, table_id), booked in by_table.items():
         booked.sort(key=lambda r: r.starts_at)
         duration = restaurants[restaurant_id].duration
-        if any(overlaps(a, b, duration) for a, b in pairwise(booked)):
+        if any(overlaps(a.starts_at, b.starts_at, duration) for a, b in pairwise(booked)):
             reader.reject("reservations", f"overlap on table {table_id!r} of {restaurant_id!r}")

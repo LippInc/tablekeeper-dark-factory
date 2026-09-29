@@ -10,8 +10,9 @@ from starlette.requests import Request
 from starlette.responses import JSONResponse, Response
 from starlette.routing import Route
 
-from . import auth, domain, fixture
+from . import auth, domain, fixture, schedule
 from .errors import ApiError, malformed
+from .fields import FieldReader
 from .store import Store
 
 
@@ -81,6 +82,17 @@ async def get_restaurant(request: Request) -> Response:
         return JsonResponse(domain.restaurant_detail(restaurant))
 
 
+async def get_availability(request: Request) -> Response:
+    reader = FieldReader()
+    restaurant_id = reader.identifier_param(request.query_params, "restaurant_id")
+    day = reader.date_param(request.query_params, "date")
+    party_size = reader.integer_param(request.query_params, "party_size", minimum=1)
+    reader.raise_first()
+    async with _store(request).transaction() as state:
+        restaurant = domain.find_restaurant(state, restaurant_id)
+        return JsonResponse(schedule.availability(state, restaurant, day, party_size))
+
+
 # ---- reservations -----------------------------------------------------------
 
 async def list_reservations(request: Request) -> Response:
@@ -124,6 +136,7 @@ ROUTES = [
     Route("/auth/login", login, methods=["POST"]),
     Route("/restaurants", list_restaurants, methods=["GET"]),
     Route("/restaurants/{restaurant_id}", get_restaurant, methods=["GET"]),
+    Route("/availability", get_availability, methods=["GET"]),
     Route("/reservations", list_reservations, methods=["GET"]),
     Route("/reservations/{reference}", get_reservation, methods=["GET"]),
 ]

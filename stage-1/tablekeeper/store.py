@@ -2,11 +2,11 @@
 from __future__ import annotations
 
 import asyncio
-from collections.abc import AsyncIterator, Callable, Container
+from collections.abc import AsyncIterator, Callable, Container, Iterable
 from contextlib import asynccontextmanager
 from dataclasses import dataclass, field
 
-from .domain import Reservation, Restaurant, User
+from .domain import CONFIRMED, Reservation, Restaurant, User
 
 
 def email_key(email: str) -> str:
@@ -21,6 +21,8 @@ class State:
     tokens: dict[str, str] = field(default_factory=dict)            # token -> user id
     restaurants: dict[str, Restaurant] = field(default_factory=dict)  # fixture order
     reservations: dict[str, Reservation] = field(default_factory=dict)  # by reference, creation order
+    # Confirmed bookings per (restaurant id, table id), by reference: the occupancy index.
+    table_bookings: dict[tuple[str, str], dict[str, Reservation]] = field(default_factory=dict)
 
     def add_user(self, user: User) -> None:
         self.users[user.id] = user
@@ -29,6 +31,15 @@ class State:
     def user_by_email(self, email: str) -> User | None:
         user_id = self.user_ids_by_email.get(email_key(email))
         return None if user_id is None else self.users[user_id]
+
+    def add_reservation(self, reservation: Reservation) -> None:
+        self.reservations[reservation.reference] = reservation
+        if reservation.status == CONFIRMED:
+            key = (reservation.restaurant_id, reservation.table_id)
+            self.table_bookings.setdefault(key, {})[reservation.reference] = reservation
+
+    def confirmed_on(self, restaurant_id: str, table_id: str) -> Iterable[Reservation]:
+        return self.table_bookings.get((restaurant_id, table_id), {}).values()
 
 
 def fresh(generate: Callable[[], str], taken: Container[str]) -> str:

@@ -14,6 +14,7 @@ if TYPE_CHECKING:
     from .store import State
 
 CONFIRMED = "confirmed"
+WEEKDAYS = ("mon", "tue", "wed", "thu", "fri", "sat", "sun")  # date.weekday() order
 
 
 @dataclass(frozen=True)
@@ -74,14 +75,20 @@ class Reservation:
     created_at: datetime  # UTC
 
 
-def overlaps(a: Reservation, b: Reservation, duration: timedelta) -> bool:
-    """Whether two bookings on one table share any time.
+def overlaps(a: datetime, b: datetime, duration: timedelta) -> bool:
+    """Whether bookings on one table starting at instants `a` and `b` share any time.
 
-    Each occupies the half-open [starts_at, starts_at + duration), and every booking
-    at a restaurant lasts the same `duration`, so two overlap exactly when their starts
-    are less than `duration` apart.
+    Each occupies the half-open [start, start + duration), and every booking at a
+    restaurant lasts the same `duration`, so two overlap exactly when their starts are
+    less than `duration` apart.
     """
-    return abs(a.starts_at - b.starts_at) < duration
+    return abs(a - b) < duration
+
+
+def is_free(state: State, restaurant: Restaurant, table_id: str, starts_at: datetime) -> bool:
+    """Whether no confirmed booking holds the table during a booking from `starts_at`."""
+    return not any(overlaps(starts_at, booked.starts_at, restaurant.duration)
+                   for booked in state.confirmed_on(restaurant.id, table_id))
 
 
 def read_party_size(reader: FieldReader, obj: dict, path: str) -> int | None:

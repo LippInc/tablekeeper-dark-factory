@@ -1,18 +1,25 @@
-"""Reading fields out of a parsed JSON body (§5).
+"""Reading fields out of a parsed JSON body or a query string (§5).
 
 A field of the wrong JSON type is 400 `malformed_request`; a missing field, or a value of
 the right type that breaks a rule, is 422 `validation_failed`. A wrong type outranks every
 other problem anywhere in the body, so a reader records problems while the body is walked
 and `raise_first` reports the highest-ranked one once the walk is done. Unknown fields are
-never read, so they are ignored.
+never read, so they are ignored. Query parameters are always strings, so only 422 applies
+to them.
 """
 from __future__ import annotations
 
+import re
+from collections.abc import Mapping
+from datetime import date
 from typing import Any
 
+from . import timeutil
 from .errors import invalid, malformed
 
 MAX_ID_LENGTH = 64
+
+_DIGITS = re.compile(r"[0-9]+")
 
 _JSON_TYPES = {"string": str, "number": (int, float), "array": list, "object": dict}
 
@@ -70,11 +77,45 @@ class FieldReader:
 
     def identifier(self, obj: dict, name: str, path: str) -> str | None:
         """An opaque ID: a string of 1 to 64 characters (§3.4)."""
-        value = self.read(obj, name, "string", path)
+        return self._identifier(at(path, name), self.read(obj, name, "string", path))
+
+    def _identifier(self, where: str, value: str | None) -> str | None:
         if value is not None and not 1 <= len(value) <= MAX_ID_LENGTH:
-            self.reject(at(path, name), f"must be 1 to {MAX_ID_LENGTH} characters")
+            self.reject(where, f"must be 1 to {MAX_ID_LENGTH} characters")
             return None
         return value
+
+    def param(self, params: Mapping[str, str], name: str) -> str | None:
+        """A required query parameter."""
+        value = params.get(name)
+        if value is None:
+            self.reject(name, "is required")
+        return value
+
+    def identifier_param(self, params: Mapping[str, str], name: str) -> str | None:
+        return self._identifier(name, self.param(params, name))
+
+    def date_param(self, params: Mapping[str, str], name: str) -> date | None:
+        value = self.param(params, name)
+        day = None if value is None else timeutil.parse_date(value)
+        if value is not None and day is None:
+            self.reject(name, "must be a calendar date YYYY-MM-DD")
+        return day
+
+    def integer_param(self, params: Mapping[str, str], name: str, *,
+                      minimum: int) -> int | None:
+        """An integer written as plain decimal digits: `1e9`, `4.0` and `+4` are not (§5)."""
+        value = self.param(params, name)
+        if value is None:
+            return None
+        try:
+            number = int(value) if _DIGITS.fullmatch(value) else None
+        except ValueError:  # more digits than Python converts
+            number = None
+        if number is None or number < minimum:
+            self.reject(name, f"must be plain decimal digits, at least {minimum}")
+            return None
+        return number
 
     def objects(self, obj: dict, name: str, path: str = "", *,
                 required: bool = True) -> list[tuple[str, dict]]:
