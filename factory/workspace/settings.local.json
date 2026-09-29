@@ -1,0 +1,28 @@
+{
+  "_comment": "Seat workspace override for Claude Code (copied by standup.ps1 / standup.sh into <workspace>/.claude/settings.local.json; never committed). Seats follow their mandate only. This file (1) excludes the host owner's personal CLAUDE.md and rules files from loading (claudeMdExcludes, matched against absolute paths), (2) denies the tools that would let a seat run agents the room cannot see (Agent, Workflow) or load the host's skills (Skill), and (3) disables unrelated host plugins. It cannot remove the host's hooks, skill listing or agent types; the stand-up's clean config folder (-SeatConfigDir) does that. Added 2026-09-26 after the practice-run transcripts of 2026-09-23 showed the host's CLAUDE.md, rules and hooks reaching every subscription seat.",
+  "claudeMdExcludes": [
+    "**/.claude/CLAUDE.md",
+    "**/.claude/rules/**"
+  ],
+  "enabledPlugins": {
+    "band-peer@jam": true,
+    "supabase@claude-plugins-official": false,
+    "vercel@claude-plugins-official": false,
+    "stripe@claude-plugins-official": false,
+    "ux@ux-skill": false,
+    "frontend-design@claude-plugins-official": false,
+    "claude-code-setup@claude-plugins-official": false,
+    "context7@claude-plugins-official": false,
+    "github@claude-plugins-official": false
+  },
+  "skillOverrides": {
+    "big-picture": "off"
+  },
+  "permissions": {
+    "deny": [
+      "Agent",
+      "Workflow",
+      "Skill"
+    ]
+  }
+}
