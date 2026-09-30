@@ -330,16 +330,17 @@ def test_a_signed_out_click_asks_to_log_in_in_place(world, page, tid):
 @pytest.mark.parametrize("restaurant,party", [("r_anker", 5), ("r_linden", 5)])
 def test_rows_use_human_labels_and_say_how_many_they_seat(world, page, tid, restaurant, party):
     """R223/R287/R219: rows name every table by its label and say "seats N" (summed for a
-    pair); no table or restaurant id is shown."""
+    pair; any space between the word and the number, a no-break one included); no table or
+    restaurant id is shown."""
     search(page, tid, restaurant, party)
     grid = page.inner_text(tid("availability-grid"))
     tables = RESTAURANTS[restaurant]["tables"]
     for table in tables:
-        assert table["label"] in grid and f"seats {table['capacity']}" in grid, (table, grid)
+        assert table["label"] in grid and re.search(rf"seats\s{table['capacity']}\b", grid), (table, grid)
     capacity = {t["id"]: t["capacity"] for t in tables}
     for pair in RESTAURANTS[restaurant]["combinable"]:
         if sum(capacity[t] for t in pair) >= party:
-            assert f"seats {sum(capacity[t] for t in pair)}" in grid, (pair, grid)
+            assert re.search(rf"seats\s{sum(capacity[t] for t in pair)}\b", grid), (pair, grid)
     shown = page.evaluate(OUTSIDE_FORM_TEXT)
     for identifier in [t["id"] for t in tables] + [restaurant]:
         assert identifier not in shown, identifier
