@@ -23,14 +23,16 @@ failure is a regression. Each listed check was shown to fail only on the added f
 throwaway service that renders reservations without `revision` and `accepted_terms`, all seven
 pass (S3-I1, 388df81).
 
-Deselect list (pass each as `--deselect <node id>`):
+Deselect list: pass each node id as `--deselect <node id>`. Node ids are relative to the pytest
+rootdir, the acceptance folder (the recipe's `--rootdir /acc`), not to the directory pytest
+prints paths from (`../acc/...` in the recipe's output).
 
 | Node id | Superseded by (stage-3 specification) | Stage-3 replacement |
 |---|---|---|
-| `acceptance/stage-1/test_s1_i3_bookings.py::test_cancel_answers_the_cancelled_booking_and_frees_the_table` | R330 "Every reservation response gains `revision` (1 at creation) and `accepted_terms`"; R337 "Cancel increments revision once; repeated cancel does not." | `test_s3_i1_terms.py::test_cancel_answers_the_cancelled_booking_at_the_next_revision_and_frees_the_table` |
-| `acceptance/stage-2/test_s2_i2_upgrade.py::test_sessions_from_stage_1_stay_signed_in` | R330; "Seeded bookings start at revision 1 under policy 0" (H6: imported bookings likewise) | `test_s3_i1_upgrade.py::test_sessions_from_stage_1_stay_signed_in` |
-| `acceptance/stage-2/test_s2_i2_upgrade.py::test_stage_1_passwords_log_in_after_the_upgrade` | R330; H6 | `test_s3_i1_upgrade.py::test_stage_1_passwords_log_in_after_the_upgrade` |
-| `acceptance/stage-2/test_s2_i2_upgrade.py::test_stage_1_references_read_the_same_with_table_ids` | R330; H6 | `test_s3_i1_upgrade.py::test_stage_1_references_read_in_stage_3_shape` |
-| `acceptance/stage-2/test_s2_i2_upgrade.py::test_every_stage_1_receipt_replays_its_original_body` | R330 (its closing list comparison); the replays themselves still return the original stage-1 bodies (R332) | `test_s3_i1_upgrade.py::test_every_stage_1_receipt_replays_its_original_body` |
-| `acceptance/stage-2/test_s2_i2_upgrade.py::test_new_references_do_not_collide_with_imported_ones` | R330; H6 | `test_s3_i1_upgrade.py::test_new_references_do_not_collide_with_imported_ones` |
-| `acceptance/stage-2/test_s2_i2_upgrade.py::test_a_stray_table_ids_field_in_a_stage_1_reservation_is_ignored` | R330; H6 | `test_s3_i1_upgrade.py::test_a_stray_table_ids_field_in_a_stage_1_reservation_is_ignored` |
+| `stage-1/test_s1_i3_bookings.py::test_cancel_answers_the_cancelled_booking_and_frees_the_table` | R330 "Every reservation response gains `revision` (1 at creation) and `accepted_terms`"; R337 "Cancel increments revision once; repeated cancel does not." | `test_s3_i1_terms.py::test_cancel_answers_the_cancelled_booking_at_the_next_revision_and_frees_the_table` |
+| `stage-2/test_s2_i2_upgrade.py::test_sessions_from_stage_1_stay_signed_in` | R330; "Seeded bookings start at revision 1 under policy 0" (H6: imported bookings likewise) | `test_s3_i1_upgrade.py::test_sessions_from_stage_1_stay_signed_in` |
+| `stage-2/test_s2_i2_upgrade.py::test_stage_1_passwords_log_in_after_the_upgrade` | R330; H6 | `test_s3_i1_upgrade.py::test_stage_1_passwords_log_in_after_the_upgrade` |
+| `stage-2/test_s2_i2_upgrade.py::test_stage_1_references_read_the_same_with_table_ids` | R330; H6 | `test_s3_i1_upgrade.py::test_stage_1_references_read_in_stage_3_shape` |
+| `stage-2/test_s2_i2_upgrade.py::test_every_stage_1_receipt_replays_its_original_body` | R330 (its closing list comparison); the replays themselves still return the original stage-1 bodies (R332) | `test_s3_i1_upgrade.py::test_every_stage_1_receipt_replays_its_original_body` |
+| `stage-2/test_s2_i2_upgrade.py::test_new_references_do_not_collide_with_imported_ones` | R330; H6 | `test_s3_i1_upgrade.py::test_new_references_do_not_collide_with_imported_ones` |
+| `stage-2/test_s2_i2_upgrade.py::test_a_stray_table_ids_field_in_a_stage_1_reservation_is_ignored` | R330; H6 | `test_s3_i1_upgrade.py::test_a_stray_table_ids_field_in_a_stage_1_reservation_is_ignored` |
