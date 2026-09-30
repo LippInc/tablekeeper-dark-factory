@@ -13,7 +13,7 @@ from datetime import date, datetime, timedelta, timezone
 from typing import TYPE_CHECKING
 
 from . import timeutil
-from .domain import WEEKDAYS, Policy, Restaurant, clash_window
+from .domain import WEEKDAYS, Policy, Restaurant, Table, clash_window
 from .policies import policy_for
 
 if TYPE_CHECKING:
@@ -73,20 +73,27 @@ def slots(restaurant: Restaurant, policy: Policy, day: date) -> list[datetime]:
     return found
 
 
-def availability(state: State, restaurant: Restaurant, day: date, party_size: int) -> dict:
+def availability(state: State, restaurant: Restaurant, day: date, party_size: int, *,
+                 explain: bool = False) -> dict:
     """Every slot on `day` with the single tables, in fixture order, that seat the party and
     are free for a whole booking from that slot, and the options: those singles, then the
     declared pairs whose summed capacity seats the party and whose tables are both free. A
-    slot with nothing free is still listed. The rules are the day's policy's."""
+    slot with nothing free is still listed. The rules are the day's policy's. With `explain`,
+    each slot also says why every table is or is not available."""
     policy = policy_for(state, restaurant, day)
     starts = slots(restaurant, policy, day)
     offsets = [starts_at - _EPOCH for starts_at in starts]
-    options = [(table,) for table in restaurant.tables] + restaurant.pairs
-    options = [option for option in options if policy.seats(option) >= party_size]
+
+    def seats_party(option: tuple[Table, ...]) -> bool:
+        return policy.seats(option) >= party_size
+
     taken = {table.id: _taken_slots(state, restaurant, table.id, offsets, policy.duration)
-             for option in options for table in option}
+             for table in restaurant.tables}
+    options = [option for option in [(table,) for table in restaurant.tables] + restaurant.pairs
+               if seats_party(option)]
     views = [({"table_ids": [t.id for t in option], "capacity": policy.seats(option)},
               _either([taken[t.id] for t in option])) for option in options]
+    entries = {table.id: _explanations(table, policy, seats_party((table,))) for table in restaurant.tables}
     zone = restaurant.zone
     return {
         "restaurant_id": restaurant.id,
@@ -95,7 +102,9 @@ def availability(state: State, restaurant: Restaurant, day: date, party_size: in
         "slots": [
             {"starts_at_local": timeutil.local_text(starts_at, zone),
              "starts_at": timeutil.rfc3339(starts_at, zone),
-             **_available(views, index)}
+             **_available(views, index),
+             **({"explain": [entries[table.id][taken[table.id][index]] for table in restaurant.tables]}
+                if explain else {})}
             for index, starts_at in enumerate(starts)],
     }
 
@@ -104,6 +113,19 @@ def _either(marks: list[bytearray]) -> bytearray:
     """Per slot, whether any of the members' `marks` is set: an option is taken when any of
     its tables is."""
     return marks[0] if len(marks) == 1 else bytearray(map(max, *marks))
+
+
+def _explanations(table: Table, policy: Policy, seats_party: bool) -> tuple[dict, dict]:
+    """Why `table` is or is not available at a slot where it is free, and where it is taken:
+    both rules, each judged on its own, under the policy in force (R306-R309). A slot uses the
+    one its occupancy mark selects, so the explanation and the availability share one source."""
+    def entry(free: bool) -> dict:
+        rules = {"capacity": seats_party, "no_overlap": free}
+        return {"table_id": table.id, "policy_version": policy.version,
+                "available": all(rules.values()),
+                "rules": [{"rule": rule, "holds": holds} for rule, holds in rules.items()]}
+
+    return entry(free=True), entry(free=False)
 
 
 def _available(views: list[tuple[dict, bytearray]], index: int) -> dict:

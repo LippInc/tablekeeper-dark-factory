@@ -18,6 +18,11 @@ from .fields import FieldReader
 from .store import State, Store
 
 
+def _encode(content: Any) -> str:
+    """Compact JSON with non-ASCII characters escaped."""
+    return json.dumps(content, allow_nan=False, separators=(",", ":"))
+
+
 class JsonResponse(JSONResponse):
     """`application/json; charset=utf-8`, with non-ASCII characters escaped, so any
     string a request carried (a lone surrogate included) renders as valid UTF-8."""
@@ -25,7 +30,30 @@ class JsonResponse(JSONResponse):
     media_type = "application/json; charset=utf-8"
 
     def render(self, content: Any) -> bytes:
-        return json.dumps(content, allow_nan=False, separators=(",", ":")).encode("ascii")
+        return _encode(content).encode("ascii")
+
+
+class AvailabilityResponse(JsonResponse):
+    """An availability answer, the same JSON as any other. With explanations it holds every
+    table at every slot, each one of a few shared entries (a table free or taken), so each
+    entry is encoded once and its text reused: a dense day stays within the request budget."""
+
+    def render(self, content: Any) -> bytes:
+        encoded: dict[int, str] = {}
+
+        def entry(value: dict) -> str:
+            if id(value) not in encoded:
+                encoded[id(value)] = _encode(value)
+            return encoded[id(value)]
+
+        slots = []
+        for slot in content["slots"]:
+            text = _encode({name: value for name, value in slot.items() if name != "explain"})
+            if "explain" in slot:
+                text = f'{text[:-1]},"explain":[{",".join(map(entry, slot["explain"]))}]}}'
+            slots.append(text)
+        head = _encode({name: value for name, value in content.items() if name != "slots"})
+        return f'{head[:-1]},"slots":[{",".join(slots)}]}}'.encode("ascii")
 
 
 def _reject_constant(name: str) -> None:
@@ -143,10 +171,12 @@ async def get_availability(request: Request) -> Response:
     restaurant_id = reader.identifier_param(request.query_params, "restaurant_id")
     day = reader.date_param(request.query_params, "date")
     party_size = reader.integer_param(request.query_params, "party_size", minimum=1)
+    explain = reader.flag_param(request.query_params, "explain")
     reader.raise_first()
     async with _store(request).transaction() as state:
         restaurant = domain.find_restaurant(state, restaurant_id)
-        return JsonResponse(schedule.availability(state, restaurant, day, party_size))
+        return AvailabilityResponse(schedule.availability(state, restaurant, day, party_size,
+                                                          explain=explain))
 
 
 # ---- reservations -----------------------------------------------------------

@@ -125,6 +125,13 @@ class FieldReader:
         return self.parsed(params, name, "", timeutil.parse_date,
                            "must be a calendar date YYYY-MM-DD")
 
+    def flag_param(self, params: Mapping[str, str], name: str) -> bool:
+        """An optional flag: absent, or exactly `true`; any other value is 422."""
+        value = params.get(name)
+        if value is not None and value != "true":
+            self.reject(name, "must be true when given")
+        return value == "true"
+
     def integer_param(self, params: Mapping[str, str], name: str, *,
                       minimum: int) -> int | None:
         """An integer written as plain decimal digits: `1e9`, `4.0` and `+4` are not (§5)."""
