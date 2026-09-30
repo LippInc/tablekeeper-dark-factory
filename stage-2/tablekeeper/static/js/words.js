@@ -5,7 +5,7 @@ const MONTHS = ["January", "February", "March", "April", "May", "June", "July", 
   "September", "October", "November", "December"];
 const NUMBERS = ["zero", "one", "two", "three", "four", "five", "six", "seven", "eight", "nine",
   "ten", "eleven", "twelve"];
-const SHORT_LABEL = 4;
+const LONGEST_CODE = 4;
 
 // What a refused party size means, wherever the diner typed it.
 export const PARTY_SIZE_PROBLEM = "Enter how many are coming as a whole number, one or more.";
@@ -39,20 +39,23 @@ export function count(number) {
   return NUMBERS[number] ?? String(number);
 }
 
-function isShort(label) {
-  return label.length <= SHORT_LABEL && !label.includes(" ");
+// A label that is a code rather than a name: at most four characters, no space, and either
+// a digit in it or a single letter ("1", "12", "A3", "B"; not "Bar").
+function isCode(label) {
+  return label.length <= LONGEST_CODE && !label.includes(" ") && (/\d/.test(label) || label.length === 1);
 }
 
-// A table: "Table 2" for a short label, otherwise the label as given ("Window").
+// A table: "Table 2" for a code, otherwise the label as given ("Bar", "Window").
 function tableName(table) {
-  return isShort(table.label) ? `Table ${table.label}` : table.label;
+  return isCode(table.label) ? `Table ${table.label}` : table.label;
 }
 
-// A table or a pair: "Table 2", "Tables 1 + 2", "Window + Bar"; every member's label is in it.
+// A table or a pair, each member read as on its own row: "Table 2", "Bar + Window",
+// "Table 3 + Window"; two codes say the prefix once, "Tables 1 + 2". Every label is in it.
 export function seatingName(tables) {
   if (tables.length === 1) return tableName(tables[0]);
   const labels = tables.map((table) => table.label);
-  return labels.every(isShort) ? `Tables ${labels.join(" + ")}` : labels.join(" + ");
+  return labels.every(isCode) ? `Tables ${labels.join(" + ")}` : tables.map(tableName).join(" + ");
 }
 
 function sizeWord(capacity) {
