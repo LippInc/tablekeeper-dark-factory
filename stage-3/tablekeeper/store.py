@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 import asyncio
-from collections.abc import AsyncIterator, Callable, Container, Iterable
+from collections.abc import AsyncIterator, Callable, Container, Hashable, Iterable
 from contextlib import asynccontextmanager
 from dataclasses import dataclass, field
 
@@ -12,6 +12,8 @@ from .series import Series
 
 # An idempotency scope: (user id, method, path, key) (§7).
 Scope = tuple[str, str, str, str]
+
+MAX_ANSWERS = 16  # rendered answers kept for the current generation
 
 
 def email_key(email: str) -> str:
@@ -45,6 +47,11 @@ class State:
     history: dict[str, list[Entry]] = field(default_factory=dict)  # per reference, in seq order
     series: dict[str, Series] = field(default_factory=dict)  # by series id
     series_by_reference: dict[str, str] = field(default_factory=dict)  # occurrence -> series id
+    # One more after every write an answer can depend on (a booking stored, a policy
+    # published); a reset or an import starts a new State. Rendered answers are kept only for
+    # the generation they were rendered in.
+    generation: int = 0
+    answers: dict[Hashable, tuple[int, bytes]] = field(default_factory=dict)
 
     def add_user(self, user: User) -> None:
         self.users[user.id] = user
@@ -65,6 +72,22 @@ class State:
         if reservation.status == CONFIRMED:
             for key in _table_keys(reservation):
                 self.table_bookings.setdefault(key, {})[reservation.reference] = reservation
+        self.generation += 1
+
+    def publish_policy(self, restaurant_id: str, policy: Policy) -> None:
+        self.policies.setdefault(restaurant_id, []).append(policy)
+        self.generation += 1
+
+    def answer(self, key: Hashable, render: Callable[[], bytes]) -> bytes:
+        """The answer `render` gives in this state, rendered once per generation: identical
+        reads between two writes share one rendering (a burst of the same question costs
+        one). Only the latest few are kept."""
+        cached = self.answers.pop(key, None)
+        body = cached[1] if cached is not None and cached[0] == self.generation else render()
+        self.answers[key] = (self.generation, body)
+        if len(self.answers) > MAX_ANSWERS:
+            del self.answers[next(iter(self.answers))]
+        return body
 
     def confirmed_on(self, restaurant_id: str, table_id: str) -> Iterable[Reservation]:
         return self.table_bookings.get((restaurant_id, table_id), {}).values()

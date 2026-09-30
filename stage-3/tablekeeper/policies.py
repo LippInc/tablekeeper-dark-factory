@@ -42,11 +42,10 @@ def publish(state: State, user: User, restaurant_id: str, body: dict) -> dict:
     restaurant = find_restaurant(state, restaurant_id)
     if user.id not in restaurant.manager_user_ids:
         raise ApiError(403, "forbidden", "only the restaurant's managers may publish policies")
-    published = state.policies.setdefault(restaurant.id, [])
     reader = FieldReader()
-    policy = read_policy(reader, body, "", restaurant, version=len(published) + 1)
+    policy = read_policy(reader, body, "", restaurant, version=len(state.policies.get(restaurant.id, [])) + 1)
     reader.raise_as_invalid()
-    published.append(policy)
+    state.publish_policy(restaurant.id, policy)
     return published_policy(policy)
 
 
