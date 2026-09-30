@@ -176,7 +176,7 @@ async def get_availability(request: Request) -> Response:
     reader.raise_first()
     async with _store(request).transaction() as state:
         restaurant = domain.find_restaurant(state, restaurant_id)
-        body = state.answer(("availability", restaurant.id, day, party_size, explain), lambda: AvailabilityResponse(
+        body = state.answer(restaurant.id, ("availability", restaurant.id, day, party_size, explain), lambda: AvailabilityResponse(
             schedule.availability(state, restaurant, day, party_size, explain=explain)).body)
         return Response(body, media_type=AvailabilityResponse.media_type)
 

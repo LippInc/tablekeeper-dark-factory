@@ -59,7 +59,14 @@ def _schema_2_to_3(state: dict) -> dict:
             "reservations": _each(state, "reservations", reservation)}
 
 
-MIGRATIONS = {1: _schema_1_to_2, 2: _schema_2_to_3}
+def _schema_3_to_4(state: dict) -> dict:
+    """Stage 4 counts each restaurant's changes (Q5, Q24): an earlier stage's restaurant
+    stands at revision 0, as after a reset."""
+    return {**state, "schema": 4,
+            "restaurants": _each(state, "restaurants", lambda record: _extended(record, revision=0))}
+
+
+MIGRATIONS = {1: _schema_1_to_2, 2: _schema_2_to_3, 3: _schema_3_to_4}
 SCHEMA = max(MIGRATIONS) + 1  # the schema this service exports
 
 

@@ -140,8 +140,8 @@ def apply(state: State, bookings: list[Reservation]) -> list[Reservation]:
     A version equal to the stored booking is a no-op and is left as it is. Phase one checks
     the changed versions' occupancy (`_check_free`). Phase two alone changes the state: each
     changed booking is stored one revision further and its history gains one entry, all of
-    the operation's entries at one time, and each series with a changed occurrence records
-    the operation once.
+    the operation's entries at one time, each series with a changed occurrence records the
+    operation once, and so does each restaurant with a changed booking.
     """
     changed = [booking for booking in bookings if state.reservations.get(booking.reference) != booking]
     _check_free(state, changed)
@@ -156,6 +156,7 @@ def apply(state: State, bookings: list[Reservation]) -> list[Reservation]:
         changes.append((previous, version))
         stored[version.reference] = version
     series.record(state, changes)
+    state.changed(booking.restaurant_id for booking in changed)
     return [stored.get(booking.reference, booking) for booking in bookings]
 
 

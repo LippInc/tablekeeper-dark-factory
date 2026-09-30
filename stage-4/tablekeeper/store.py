@@ -13,7 +13,7 @@ from .series import Series
 # An idempotency scope: (user id, method, path, key) (§7).
 Scope = tuple[str, str, str, str]
 
-MAX_ANSWERS = 16  # rendered answers kept for the current generation
+MAX_ANSWERS = 16  # rendered answers kept at their restaurants' current revisions
 
 
 def email_key(email: str) -> str:
@@ -47,10 +47,10 @@ class State:
     history: dict[str, list[Entry]] = field(default_factory=dict)  # per reference, in seq order
     series: dict[str, Series] = field(default_factory=dict)  # by series id
     series_by_reference: dict[str, str] = field(default_factory=dict)  # occurrence -> series id
-    # One more after every write an answer can depend on (a booking stored, a policy
-    # published); a reset or an import starts a new State. Rendered answers are kept only for
-    # the generation they were rendered in.
-    generation: int = 0
+    # Per restaurant: one more for each successful operation that changed something there
+    # (`changed`); 0 when absent, as after a reset. An import restores the exported values.
+    restaurant_revisions: dict[str, int] = field(default_factory=dict)
+    # Rendered answers, each with the revision of the restaurant it describes at rendering.
     answers: dict[Hashable, tuple[int, bytes]] = field(default_factory=dict)
 
     def add_user(self, user: User) -> None:
@@ -72,19 +72,30 @@ class State:
         if reservation.status == CONFIRMED:
             for key in _table_keys(reservation):
                 self.table_bookings.setdefault(key, {})[reservation.reference] = reservation
-        self.generation += 1
 
     def publish_policy(self, restaurant_id: str, policy: Policy) -> None:
         self.policies.setdefault(restaurant_id, []).append(policy)
-        self.generation += 1
+        self.changed([restaurant_id])
 
-    def answer(self, key: Hashable, render: Callable[[], bytes]) -> bytes:
-        """The answer `render` gives in this state, rendered once per generation: identical
-        reads between two writes share one rendering (a burst of the same question costs
-        one). Only the latest few are kept."""
+    def restaurant_revision(self, restaurant_id: str) -> int:
+        return self.restaurant_revisions.get(restaurant_id, 0)
+
+    def changed(self, restaurant_ids: Iterable[str]) -> None:
+        """The second phase of one successful operation that changed something at each of
+        `restaurant_ids`: each of those restaurants' revisions moves on once, however many of
+        its records the operation changed (Q5)."""
+        for restaurant_id in set(restaurant_ids):
+            self.restaurant_revisions[restaurant_id] = self.restaurant_revision(restaurant_id) + 1
+
+    def answer(self, restaurant_id: str, key: Hashable, render: Callable[[], bytes]) -> bytes:
+        """The answer `render` gives about restaurant `restaurant_id` in this state, rendered
+        once per revision of that restaurant: every write an answer can depend on raises it, so
+        identical reads between two writes share one rendering (a burst of the same question
+        costs one). Only the latest few are kept."""
+        revision = self.restaurant_revision(restaurant_id)
         cached = self.answers.pop(key, None)
-        body = cached[1] if cached is not None and cached[0] == self.generation else render()
-        self.answers[key] = (self.generation, body)
+        body = cached[1] if cached is not None and cached[0] == revision else render()
+        self.answers[key] = (revision, body)
         if len(self.answers) > MAX_ANSWERS:
             del self.answers[next(iter(self.answers))]
         return body

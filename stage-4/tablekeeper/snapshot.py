@@ -49,9 +49,11 @@ def export(state: State) -> dict:
 
 
 def _restaurant_record(state: State, restaurant: Restaurant) -> dict:
-    """The fixture's shape, with the managers and the published policies."""
+    """The fixture's shape, with the managers, the published policies and the restaurant's
+    revision."""
     return {**restaurant_detail(restaurant), "manager_user_ids": list(restaurant.manager_user_ids),
-            "policies": [published_policy(p) for p in state.policies.get(restaurant.id, [])]}
+            "policies": [published_policy(p) for p in state.policies.get(restaurant.id, [])],
+            "revision": state.restaurant_revision(restaurant.id)}
 
 
 def _reservation_record(state: State, reservation: Reservation) -> dict:
@@ -102,8 +104,10 @@ def restore(body: Any) -> State:
     state.tokens = _tokens(reader, data, records.user_ids)
     for path, item in reader.objects(data, "restaurants"):
         restaurant = records.restaurant(item, path)
+        revision = reader.integer(item, "revision", path, minimum=0)
         if restaurant is not None:
             state.policies[restaurant.id] = _policies(reader, item, path, restaurant)
+            state.restaurant_revisions[restaurant.id] = revision
     state.restaurants = records.restaurants
     reservations = _reservations(reader, records, data, state)
     records.reject_overlaps(reservations)
