@@ -1,7 +1,8 @@
-"""stage-watch.py - one lean watcher for a judged stage (driver side; not part of the result repo).
+"""stage-watch.py - one lean watcher for a judged stage (operator side: it reads the room and never writes to it).
 
-Replaces room-watch.py + perm-watch.sh + liveness-watch.sh for the driver (2026-09-28): one process instead of three
-loops, and only lines worth acting on, so the driver wakes less often.
+Replaces room-watch.py, perm-watch.sh and a liveness loop for the operator (2026-09-28): one process instead of three
+loops, and only lines worth acting on, so the operator wakes less often. The two older watchers stay in factory/ for
+the record.
 Prints one line per:
   - milestone room message: a verdict, a look review, a repeat or packaging report, a builder handoff, the first part
     of an architect request, a critic plan review, anything addressed to the owner (the final report);
@@ -29,12 +30,25 @@ since = "" if since.lower() == "none" else since
 _win = os.path.join(os.environ.get("LOCALAPPDATA", ""), "Programs", "jam", "bin", "jam.exe")
 jam = _win if os.path.isfile(_win) else "jam"
 seats = ["architect", "critic", "designer", "builder", "verifier", "release-clerk"]
-mention = re.compile(r"@\[\[[0-9a-f-]{36}\]\]\s*")
+mention = re.compile(r"@\[\[[0-9a-f-]{36}\]\]\s*|@[A-Za-z0-9_-]+/[a-z-]+\s*")  # also a plain "@owner/seat" handle (stage-4 CLEAR, 09-30)
 # Milestones by the band's own message headers (seen in stages 1-3). Parts 2..N of a split request are skipped.
 milestone = re.compile(
     r"^(VERDICT|REPEAT|LOOK REVIEW|PACKAGING REPORT|FINAL REPORT|STAGE \d+ ITEM \d+ HANDOFF"
     r"|\[1/\d+\] [A-Z]|PLAN REVIEW|CLEAR|BLOCKED|SPLIT)"
+    r"|^S\d+-I\d+[a-z]?(?: \([^)]{0,80}\))?:? \**(VERIFIED|REFUTED|APPROVED|CHANGES|PASS|FAIL)\b"  # run 2 stage 3: "S3-I1 VERIFIED, ..." (missed 4 verdicts 09-30)
+    r"|FINAL REPORT|REFUT|[Rr]efut|reopens"  # a refutation can sit inside another item's verdict (S3-I2 F1, 09-30)
     r"|: \**(VERIFIED|REFUTED|APPROVED|CHANGES|PASS|FAIL|CLEAR|BLOCKED|SPLIT)\b")  # verdicts may be in **bold**
+# A "**Verdict: X**" line after a long header (stage-4 S4-I7 at 15:48 on 09-30 sat past the first 200 characters).
+verdict_any = re.compile(r"\bVerdict:\s*\**\s*(VERIFIED|REFUTED|APPROVED|CHANGES|PASS|FAIL)\b"
+                         # formats keep drifting ("**S4-I6 ... — VERIFIED.**", "... **REPEAT PASS.**", 18:56/19:31 on 09-30):
+                         # any upper-case verdict word in the first 800 characters of a message that is not a handoff part
+                         r"|\b(VERIFIED|REFUTED|APPROVED|CHANGES REQUESTED|REPEAT PASS|REPEAT FAIL|BLOCKED|UNRUNNABLE)\b")
+# Run-2 mandates (2026-09-29): a split request carries the request itself in its LAST part ("part n of n").
+last_part = re.compile(r"\bpart (?P<k>\d+) of (?P=k)\b", re.IGNORECASE)
+# Room budget (run 1's room stopped at 10,000 messages, tool copies included): report each threshold once.
+CAP = 10000
+budget_marks = [3000, 5000, 7000, 8000, 9000]
+next_budget = 0.0
 
 
 def now():
@@ -80,7 +94,9 @@ while time.time() < stop_at:
         is_err = m.get("message_type") == "error"
         to_owner = owner_id in raw
         perm = "claude-permission:" in raw
-        if is_err or to_owner or perm or milestone.search(text[:200]):
+        parts = last_part.search(text[:300]) and not os.environ.get("WATCH_NO_PARTS")  # WATCH_NO_PARTS=1: skip handoff last-part lines
+        verdict_line = verdict_any.search(text[:800]) and not re.match(r"part \d+ of \d+\b", text)
+        if is_err or to_owner or perm or milestone.search(text[:200]) or verdict_line or parts:
             flag = "ERROR " if is_err else ("PERMISSION " if perm else ("TO-OWNER " if to_owner else ""))
             print(f"[{ts[11:16]}Z] {flag}{m.get('sender_name')}: {text[:230]}", flush=True)
 
@@ -100,6 +116,18 @@ while time.time() < stop_at:
                 if line.strip() and key not in perm_seen:
                     perm_seen.add(key)
                     print(f"[{now()}] PERMISSION {s}: {line[:220]}", flush=True)
+
+    # 2b. Room budget (every 600 s): total pages x 100 is an upper bound on the room's message count.
+    if time.time() >= next_budget:
+        next_budget = time.time() + 600
+        try:
+            pages = int(json.loads(run(["room", "messages", room, "--json"]).stdout).get("total_pages", 0))
+            est = pages * 100
+            while budget_marks and est >= budget_marks[0]:
+                mark = budget_marks.pop(0)
+                print(f"[{now()}] BUDGET room at ~{est} messages (>= {mark}, cap {CAP}; {pages} pages)", flush=True)
+        except Exception as e:
+            print(f"[{now()}] [watch] budget read failed: {e}", flush=True)
 
     # 3. Liveness: the newest seat transcript.
     files = glob.glob(os.path.join(tdir, "*.jsonl"))

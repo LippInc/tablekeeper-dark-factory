@@ -1,4 +1,6 @@
-"""Watch a Band room: print one line per new text or error message from an agent (newest page, polled)."""
+"""Watch a Band room: print one line per new text or error message from an agent (newest page, polled).
+
+Superseded by stage-watch.py (2026-09-28); kept for the record."""
 import json, os, subprocess, sys, time
 
 room = sys.argv[1]

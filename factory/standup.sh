@@ -21,7 +21,7 @@
 #      in `jam sessions --as <handle>`, because a seat without that session never hears the task.
 #      --room-check-only runs only this phase against an existing set (--prefix and --room required).
 #
-# VERIFIED 2026-09-23 on jam 0.4.10 / Windows 11 through the PowerShell twin (see ../DRY-RUN.md): `agent create`
+# VERIFIED 2026-09-23 on jam 0.4.10 / Windows 11 through the PowerShell twin (the team's dry runs, recorded outside this repository): `agent create`
 # needs --session <scope>; a subscription seat needs --claude-context-mode local_config (bare pairs only with
 # api_key); the handle is owner/<name>; mandates are LIVE-LINKED to the file path (point MANDATE_DIR at the
 # committed mandates the judges scan); permission mode auto ran whole units with no prompt except for destructive
@@ -277,7 +277,7 @@ fi
 # 3. The room: the human creates it in Band Desktop and adds the seats while their workers run, or a live member
 #    seat adds them. Either way, every seat must show a session for the room.
 if [ -n "$ROOM_ID" ]; then
-  handles="$(get_handle architect) $(get_handle critic) $(get_handle builder) $(get_handle verifier) $(get_handle release-clerk)"
+  handles="$(get_handle architect) $(get_handle critic) $(get_handle designer) $(get_handle builder) $(get_handle verifier) $(get_handle release-clerk)"
   if [ -n "$ADD_VIA" ]; then
     # shellcheck disable=SC2086
     run_soft chat add --session "$ADD_VIA" "$ROOM_ID" $handles

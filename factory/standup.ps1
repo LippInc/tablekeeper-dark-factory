@@ -1,6 +1,6 @@
 <#
 .SYNOPSIS
-  Stand up the factory seats: five Band Desktop agents (architect, critic, builder, verifier, release clerk; headless
+  Stand up the factory seats: six Band Desktop agents (architect, critic, designer, builder, verifier, release clerk; headless
   Claude Code runtimes owned by Band Desktop, all on claude-opus-5-5 by default since 2026-09-26),
   each with its generic mandate as owner instructions, plus the workspace files that keep seat work generic;
   then check the three things the dry runs of 2026-09-23 showed must be true before a task is pasted.
@@ -24,7 +24,7 @@
        the task. -RoomCheckOnly runs only this phase against an existing set (-Prefix and -RoomId required).
 
 .NOTES
-  VERIFIED 2026-09-23 on jam 0.4.10, Windows 11 (see ../DRY-RUN.md):
+  VERIFIED 2026-09-23 on jam 0.4.10, Windows 11 (the team's dry runs, recorded outside this repository):
     - `jam agent create` needs --session <scope> (one scope per seat); a subscription seat needs
       --claude-context-mode local_config (bare pairs only with api_key auth);
     - Jam uses --name verbatim as the handle (owner/name); mandates attach with
@@ -47,11 +47,11 @@
   Off-quota builder (2026-09-25, Martin's pick for the hackathon week): -BuilderSpawn <provider wrapper> with
   -BuilderModel <the provider's model id> creates ONLY the builder with api_key auth, bare context and that spawn
   command (the seat runs the unmodified Claude Code binary against the provider; nothing touches the Max login).
-  The other three seats stay on the subscription. The wrapper for the GLM plan is ~\.claude-legs\seat-glm.cmd.
+  The other five seats stay on the subscription. The wrapper for the GLM plan is ~\.claude-legs\seat-glm.cmd.
   VERIFIED 2026-09-25 through that wrapper, headless, bare, glm-5.3: auto permission mode runs a literal-path write
   and its classifier blocks an indirect recursive delete (the classifier's calls go to the provider, not to Claude).
-  NOT yet verified: Jam accepting --runtime-effort max for such a seat, and a whole unit built by it (the practice
-  unit in FACTORY.md proves both before the recorded run).
+  NOT verified: Jam accepting --runtime-effort max for such a seat, and a whole unit built by it (the judged runs
+  kept all six seats on the subscription).
   Fallback: -Only builder with a NEW -Prefix and no -BuilderSpawn stands up a subscription builder alone for the
   running room (the human adds it and tells the architect the new handle).
 
@@ -321,7 +321,8 @@ if ($RoomCheckOnly) {
     }
     $handle = if ("$line" -match "([A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+)") { $Matches[1] } else { "<owner>/$agentName" }
     $handles[$s.name] = $handle
-    Invoke-Cli @("agent", "instructions", "set", "--as", $handle, "--instructions-file", $mandate) | Out-Null
+    # Jam on Windows refuses a backslash path here ("os error 2", 2026-09-26); forward slashes work everywhere.
+    Invoke-Cli @("agent", "instructions", "set", "--as", $handle, "--instructions-file", ($mandate -replace '\\', '/')) | Out-Null
     Invoke-Cli @("agent", "instructions", "show", "--as", $handle) | Out-Null
     Assert-Live $agentName
   }
@@ -351,7 +352,7 @@ if ($Only.Count -gt 0) {
   Write-Host "  $cli room participants $RoomId                      (the architect's participant id)"
   Write-Host "  $cli room send $RoomId ""<task text>"" --mention <architect participant id>"
 } else {
-  Write-Host "Next (the human, in Band Desktop): Rooms -> New room -> add the five seats (Participants) while their workers run, then:"
+  Write-Host "Next (the human, in Band Desktop): Rooms -> New room -> add the six seats (Participants) while their workers run, then:"
   Write-Host "  powershell -File $($MyInvocation.MyCommand.Path) -Workspace $Workspace -Prefix $Prefix -RoomId <room id> -RoomCheckOnly"
   Write-Host "Only after that check passes: start the recording and post the task addressed to @$($handles['architect'])."
 }

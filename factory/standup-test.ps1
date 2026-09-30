@@ -1,7 +1,7 @@
 <#
 .SYNOPSIS
   Known-bad checks for standup.ps1: the script must refuse the things it exists to refuse. Run this before the
-  stand-up on the event day; a check that cannot fail proves nothing (../DRY-RUN.md, rehearsal of 2026-09-23).
+  stand-up on the event day; a check that cannot fail proves nothing (the team's rehearsal of 2026-09-23).
 
 .DESCRIPTION
   Every check feeds standup.ps1 an input it must reject and requires the named refusal, then one dry run must pass.
@@ -63,10 +63,12 @@ Check "known-bad: a missing spawn wrapper is refused" @("-DryRun", "-BuilderMode
 Check "known-bad: -Only with an unknown seat is refused" @("-DryRun", "-Only", "nosuchseat") "unknown seat" $false
 Check "pass case: -Only builder stands up the builder alone (the subscription fallback)" @("-DryRun", "-Prefix", "fb0928", "-Only", "builder") "--session fb0928-builder" $true "--session fb0928-architect"
 
-# Five-seat roster, all Opus 5.5 (2026-09-26, the roster evaluation in ../roster-eval-2026-09-26/).
+# Six-seat roster, all Opus 5.5 (the team's roster evaluation, 2026-09-26).
 Check "pass case: the default dry run creates the critic seat" @("-DryRun", "-Prefix", "tp0926") "--session tp0926-critic" $true
 Check "pass case: the default dry run creates the designer seat at xhigh" @("-DryRun", "-Prefix", "tp0926") "--session tp0926-designer --name tp0926-designer" $true
 Check "pass case: -PlainNames names each seat by its role alone" @("-DryRun", "-Prefix", "tp0926", "-PlainNames") "--session release-clerk --name release-clerk" $true
+# Jam on Windows refuses a backslash mandate path ("os error 2", 2026-09-26), so the script hands it over with forward slashes.
+Check "pass case: the mandate path reaches jam with forward slashes" @("-DryRun", "-Prefix", "tp0926", "-Only", "architect") "mandates/architect.md" $true
 Check "pass case: the default dry run puts every seat on claude-opus-5-5 (no Sonnet seat)" @("-DryRun", "-Prefix", "tp0926") "--runtime-model claude-opus-5-5" $true "claude-sonnet-5"
 Check "pass case: the default builder runs at effort high" @("-DryRun", "-Prefix", "tp0926", "-Only", "builder") "--runtime-model claude-opus-5-5 --runtime-effort high" $true
 # Clean seats: a missing or signed-out config folder must be refused before anything is created.

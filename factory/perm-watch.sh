@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
 # perm-watch.sh - print one line per NEW pending runtime permission request of any factory seat.
+# Superseded by stage-watch.py (2026-09-28), which also reports permission requests; kept for the record.
 # Usage (Monitor): bash perm-watch.sh <band owner, the part before / in a seat handle> [poll seconds, default 60]
 # A seat blocked on a prompt posts nothing, so the room watcher never sees it; this does.
 # Approving a prompt is not human input (organizers, Q&A 2026-09-26); the operator approves routine requests.
