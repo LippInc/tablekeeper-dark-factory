@@ -402,6 +402,31 @@ a { color: inherit; }
 
 .notice-refused .notice-title { color: var(--tk-refused); }
 
+.notice-uncertain { border-left: 3px dashed var(--tk-uncertain); }
+
+.notice-uncertain .notice-title { color: var(--tk-uncertain); }
+
+.notice-booked { border-left-color: var(--tk-booked); }
+
+.notice-booked .notice-title { color: var(--tk-booked); }
+
+.notice-loading .loading-track { margin: var(--tk-s2) 0; }
+
+/* The booking reference: the one piece of data the diner copies, set large with even figures. */
+.confirmation-reference {
+  margin: var(--tk-s1) 0;
+  font-family: var(--tk-display);
+  font-variant-numeric: lining-nums tabular-nums;
+  font-feature-settings: "lnum" 1, "tnum" 1;
+  font-size: 36px;
+  line-height: 1.1;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  overflow-wrap: anywhere;
+}
+
+.confirmation-tables { color: var(--tk-text); font-weight: 500; }
+
 /* ---- 3.11 Cards and 5.2 log in / sign up ----------------------------------------------- */
 
 .card {
@@ -780,12 +805,11 @@ a { color: inherit; }
   padding: 20px;
 }
 
+/* The placeholder holds the panel's place wherever the panel has one before a choice: beside
+   the results on desktop and below them in the middle band; a phone shows the panel only once
+   a time is chosen. */
 @media (min-width: 720px) {
   .booking-panel-form, .booking-panel-signed-out { padding: 28px; }
-}
-
-@media (min-width: 1024px) {
-  .booking-panel { margin-top: var(--tk-s7); }
 
   .booking-panel-empty {
     display: block;
@@ -793,6 +817,10 @@ a { color: inherit; }
     border-radius: 4px;
     padding: 28px;
   }
+}
+
+@media (min-width: 1024px) {
+  .booking-panel { margin-top: var(--tk-s7); }
 }
 
 .booking-panel .room-drawing { margin: var(--tk-s4) 0; }

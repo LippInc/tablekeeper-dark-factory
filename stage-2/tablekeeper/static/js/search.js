@@ -9,14 +9,14 @@ import { bookingPanel } from "./booking.js";
 import { el } from "./dom.js";
 import { quietRoom } from "./draw.js";
 import { anyOpen, gridRows, timeOf } from "./grid.js";
-import { button, field } from "./ui.js";
-import { count, dateInWords, today, weekdayOf } from "./words.js";
+import { button, field, loadingTrack } from "./ui.js";
+import { count, dateInWords, PARTY_SIZE_PROBLEM, today, weekdayOf } from "./words.js";
 
 const LEAST_RESULTS_HEIGHT = 360;
 
 // What a refused search means, keyed by the query parameter the service names.
 const SEARCH_PROBLEMS = {
-  party_size: "Enter how many are coming as a whole number, one or more.",
+  party_size: PARTY_SIZE_PROBLEM,
   date: "Choose a date to search.",
   restaurant_id: "Choose a restaurant to search.",
 };
@@ -28,7 +28,7 @@ function resultsNotice({ eyebrow, heading, sentence, room, tone, testid, loading
     eyebrow && el("p", { class: "eyebrow" }, eyebrow),
     el("h1", { class: "results-notice-heading" }, heading),
     quietRoom(room),
-    loading && el("div", { class: "loading-track" }, el("span", { class: "loading-bar" })),
+    loading && loadingTrack(),
     el("p", { class: "results-notice-sentence" }, sentence),
     action);
 }
@@ -56,11 +56,13 @@ export async function renderSearch(main) {
     return;
   }
   const band = searchBand(restaurants);
-  const panel = bookingPanel();
   const nameOf = (id) => restaurants.find((restaurant) => restaurant.id === id).name;
   let latest = 0;
+  let lastSearch = null;
   let inFlight = null;
   let selected = null;
+  // A table taken under an open form reruns the search it came from, keeping the form (R208).
+  const panel = bookingPanel({ onTaken: () => run(lastSearch, { refresh: true }) });
 
   const chooseAnotherDate = () => button("secondary", "Choose another date", { onclick: () => band.date.focus() });
 
@@ -91,6 +93,7 @@ export async function renderSearch(main) {
       }, chooseAnotherDate()));
       return;
     }
+    selected = null;
     const answer = { restaurant, slots, party: search.party };
     const onChoose = (choice) => select({ ...choice, restaurant, date: search.date, party: search.party });
     const intro = anyOpen(answer)
@@ -112,18 +115,22 @@ export async function renderSearch(main) {
     }, button("secondary", "Search again", { onclick: () => run(search) })));
   }
 
-  async function run(search) {
+  // A new search closes the booking panel and shows the loading notice; a refresh keeps the
+  // panel and the current grid until the fresh answer replaces it. Both obey the sequence check.
+  async function run(search, { refresh = false } = {}) {
     const mine = ++latest;
+    lastSearch = search;
     inFlight?.abort();
     inFlight = new AbortController();
-    selected = null;
-    panel.reset();
-    results.style.minHeight = `${Math.max(results.offsetHeight, LEAST_RESULTS_HEIGHT)}px`;
-    results.replaceChildren(resultsNotice({
-      eyebrow: nameOf(search.restaurantId), loading: true,
-      heading: search.party > 0 ? `Finding tables for ${count(search.party)}` : "Finding tables",
-      sentence: `Checking every table on ${dateInWords(search.date || today())}.`,
-    }));
+    if (!refresh) {
+      panel.reset();
+      results.style.minHeight = `${Math.max(results.offsetHeight, LEAST_RESULTS_HEIGHT)}px`;
+      results.replaceChildren(resultsNotice({
+        eyebrow: nameOf(search.restaurantId), loading: true,
+        heading: search.party > 0 ? `Finding tables for ${count(search.party)}` : "Finding tables",
+        sentence: `Checking every table on ${dateInWords(search.date || today())}.`,
+      }));
+    }
     const query = new URLSearchParams({ restaurant_id: search.restaurantId, date: search.date, party_size: search.partyText });
     const { signal } = inFlight;
     try {

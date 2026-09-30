@@ -43,6 +43,11 @@ export function notice({ tone, title, body, testid }, ...extras) {
     extras);
 }
 
+// The one animation (DESIGN.md 1.6): a bar sliding along a hairline while something loads.
+export function loadingTrack() {
+  return el("div", { class: "loading-track" }, el("span", { class: "loading-bar" }));
+}
+
 // Asking a signed-out diner to log in: neutral, with the brass action.
 export function signInNotice({ title, body, testid }) {
   return notice({ tone: "neutral", title, body, testid },

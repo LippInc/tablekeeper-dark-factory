@@ -7,6 +7,9 @@ const NUMBERS = ["zero", "one", "two", "three", "four", "five", "six", "seven", 
   "ten", "eleven", "twelve"];
 const SHORT_LABEL = 4;
 
+// What a refused party size means, wherever the diner typed it.
+export const PARTY_SIZE_PROBLEM = "Enter how many are coming as a whole number, one or more.";
+
 function parts(isoDate) {
   const [year, month, day] = isoDate.split("-").map(Number);
   return { year, month, day, weekday: WEEKDAYS[new Date(Date.UTC(year, month - 1, day)).getUTCDay()] };
