@@ -72,12 +72,18 @@ def slots(restaurant: Restaurant, day: date) -> list[datetime]:
 
 
 def availability(state: State, restaurant: Restaurant, day: date, party_size: int) -> dict:
-    """Every slot on `day` with the tables, in fixture order, that seat the party and are
-    free for a whole booking from that slot. A slot with no such table is still listed."""
+    """Every slot on `day` with the single tables, in fixture order, that seat the party and
+    are free for a whole booking from that slot, and the options: those singles, then the
+    declared pairs whose summed capacity seats the party and whose tables are both free. A
+    slot with nothing free is still listed."""
     starts = slots(restaurant, day)
     offsets = [starts_at - _EPOCH for starts_at in starts]
-    tables = [table for table in restaurant.tables if table.capacity >= party_size]
-    taken = [_taken_slots(state, restaurant, table.id, offsets) for table in tables]
+    options = [(table,) for table in restaurant.tables] + restaurant.pairs
+    options = [option for option in options if sum(t.capacity for t in option) >= party_size]
+    taken = {table.id: _taken_slots(state, restaurant, table.id, offsets)
+             for option in options for table in option}
+    views = [({"table_ids": [t.id for t in option], "capacity": sum(t.capacity for t in option)},
+              _either([taken[t.id] for t in option])) for option in options]
     zone = restaurant.zone
     return {
         "restaurant_id": restaurant.id,
@@ -86,10 +92,23 @@ def availability(state: State, restaurant: Restaurant, day: date, party_size: in
         "slots": [
             {"starts_at_local": timeutil.local_text(starts_at, zone),
              "starts_at": timeutil.rfc3339(starts_at, zone),
-             "available_table_ids": [table.id for table, table_taken in zip(tables, taken)
-                                     if not table_taken[index]]}
+             **_available(views, index)}
             for index, starts_at in enumerate(starts)],
     }
+
+
+def _either(marks: list[bytearray]) -> bytearray:
+    """Per slot, whether any of the members' `marks` is set: an option is taken when any of
+    its tables is."""
+    return marks[0] if len(marks) == 1 else bytearray(map(max, *marks))
+
+
+def _available(views: list[tuple[dict, bytearray]], index: int) -> dict:
+    """The options free at slot `index`, and the single tables among them."""
+    free = [view for view, taken in views if not taken[index]]
+    return {"available_table_ids": [view["table_ids"][0] for view in free
+                                    if len(view["table_ids"]) == 1],
+            "available_options": free}
 
 
 def _taken_slots(state: State, restaurant: Restaurant, table_id: str,

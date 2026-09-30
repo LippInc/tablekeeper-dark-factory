@@ -12,7 +12,7 @@ from typing import Any
 
 from . import timeutil
 from .auth import is_hash_record
-from .domain import CANCELLED, CONFIRMED, Reservation, User, restaurant_detail
+from .domain import Reservation, User, restaurant_detail
 from .errors import invalid
 from .fields import FieldReader, at
 from .idempotency import MAX_KEY_LENGTH, is_canonical_request
@@ -21,8 +21,7 @@ from .store import Receipt, Scope, State
 
 TRACK = "tablekeeper"
 FORMAT_VERSION = 1
-SCHEMA = 1
-STATUSES = (CONFIRMED, CANCELLED)
+SCHEMA = 2  # 2: reservations hold table_ids; restaurants declare combinable pairs
 
 
 def export(state: State) -> dict:
@@ -43,7 +42,7 @@ def export(state: State) -> dict:
 def _reservation_record(reservation: Reservation) -> dict:
     return {"id": reservation.id, "reference": reservation.reference,
             "user_id": reservation.user_id, "restaurant_id": reservation.restaurant_id,
-            "table_id": reservation.table_id, "party_size": reservation.party_size,
+            "table_ids": list(reservation.table_ids), "party_size": reservation.party_size,
             "starts_at": reservation.starts_at.isoformat(), "status": reservation.status,
             "created_at": reservation.created_at.isoformat()}
 
@@ -101,11 +100,8 @@ def _reservations(reader: FieldReader, records: Records, data: dict) -> list[Res
         starts_at, created_at = (reader.parsed(item, name, path, timeutil.parse_instant,
                                                "must be a timestamp with an offset")
                                  for name in ("starts_at", "created_at"))
-        status = reader.read(item, "status", "string", path)
-        if status is not None and status not in STATUSES:
-            reader.reject(at(path, "status"), f"must be one of {', '.join(STATUSES)}")
-        elif None not in (booking, starts_at, created_at, status):
-            reservations.append(booking.reservation(starts_at, status, created_at))
+        if None not in (booking, starts_at, created_at):
+            reservations.append(booking.reservation(starts_at, created_at))
     return reservations
 
 

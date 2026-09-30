@@ -12,7 +12,7 @@ from dataclasses import dataclass
 
 from . import timeutil
 from .auth import hash_password
-from .domain import CONFIRMED, Reservation, Restaurant, User, read_local
+from .domain import Reservation, Restaurant, User, read_local
 from .fields import FieldReader, at
 from .records import Account, Records
 from .store import State
@@ -47,7 +47,7 @@ def parse(body: dict) -> Fixture:
             if starts_at is None:
                 reader.reject(at(path, "starts_at_local"), "is a local time that does not exist")
             else:
-                reservations.append(booking.reservation(starts_at, CONFIRMED, created_at))
+                reservations.append(booking.reservation(starts_at, created_at))
     records.reject_overlaps(reservations)
     reader.raise_first()
     return Fixture(accounts, records.restaurants, reservations)

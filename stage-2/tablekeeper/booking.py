@@ -12,8 +12,9 @@ from datetime import datetime, timedelta
 
 from . import schedule, timeutil
 from .domain import (CANCELLED, CONFIRMED, Reservation, Restaurant, User, find_restaurant,
-                     overlaps, own_reservation, read_local, read_party_size, show)
-from .errors import ApiError, invalid, not_found
+                     overlaps, own_reservation, read_local, read_party_size, read_table_ids,
+                     select_tables, show)
+from .errors import ApiError, invalid
 from .fields import FieldReader, at, is_identifier
 from .store import State, fresh
 
@@ -25,30 +26,30 @@ MAX_MOVES = 8
 @dataclass(frozen=True)
 class Changes:
     """The booking values a request asks for; None keeps the current value."""
-    table_id: str | None = None
+    table_ids: tuple[str, ...] | None = None
     local: datetime | None = None
     party_size: int | None = None
 
 
 def read_changes(reader: FieldReader, obj: dict, path: str, *, partial: bool) -> Changes:
-    """The `table_id`, `starts_at_local` and `party_size` of a create body (every field
+    """The table set, `starts_at_local` and `party_size` of a create body (every field
     required) or of an amendment (`partial`: only the fields present)."""
     def wanted(name: str) -> bool:
         return not partial or name in obj
 
     return Changes(
-        table_id=reader.identifier(obj, "table_id", path) if wanted("table_id") else None,
+        table_ids=read_table_ids(reader, obj, path, required=not partial),
         local=read_local(reader, obj, path) if wanted("starts_at_local") else None,
         party_size=read_party_size(reader, obj, path) if wanted("party_size") else None)
 
 
 # ---- rules -----------------------------------------------------------------
 
-def _start(restaurant: Restaurant, table_id: str, local: datetime, party_size: int) -> datetime:
-    """The UTC start of a booking the restaurant's rules allow, checked in D5 order."""
-    table = restaurant.table(table_id)
-    if table is None:
-        raise not_found(f"no table {table_id!r} at this restaurant")
+def _placed(restaurant: Restaurant, table_ids: tuple[str, ...], local: datetime,
+            party_size: int) -> tuple[tuple[str, ...], datetime]:
+    """The table set in declared order and the UTC start of a booking the restaurant's rules
+    allow, checked in D5 order with the table-set rules (E3) in the place of the table's."""
+    tables = select_tables(restaurant, table_ids)
     starts_at = timeutil.resolve(local, restaurant.zone)
     if starts_at is None:
         raise ApiError(422, "invalid_local_time", "that local time does not exist")
@@ -57,9 +58,9 @@ def _start(restaurant: Restaurant, table_id: str, local: datetime, party_size: i
         raise ApiError(422, "outside_opening_hours", "the booking is not within opening hours")
     if not window.on_grid(local, restaurant.slot_minutes):
         raise ApiError(422, "not_on_slot_grid", "the start is not on the slot grid")
-    if party_size > table.capacity:
-        raise ApiError(422, "party_exceeds_capacity", "the party does not fit that table")
-    return starts_at
+    if party_size > sum(table.capacity for table in tables):
+        raise ApiError(422, "party_exceeds_capacity", "the party does not fit those tables")
+    return tuple(table.id for table in tables), starts_at
 
 
 def _require_before_cutoff(reservation: Reservation, restaurant: Restaurant) -> None:
@@ -81,30 +82,34 @@ def amended(state: State, current: Reservation, changes: Changes,
     _require_before_cutoff(current, restaurant)
     reader.raise_first()
     current_local = timeutil.wall_time(current.starts_at, restaurant.zone)
-    table_id = current.table_id if changes.table_id is None else changes.table_id
+    table_ids = current.table_ids if changes.table_ids is None else changes.table_ids
     local = current_local if changes.local is None else changes.local
     party_size = current.party_size if changes.party_size is None else changes.party_size
-    if (table_id, local, party_size) == (current.table_id, current_local, current.party_size):
+    # A set named in another order is the same set (E9).
+    if (set(table_ids), local, party_size) == (set(current.table_ids), current_local,
+                                               current.party_size):
         return current  # a no-op keeps every value and the booking's occupancy
-    return replace(current, table_id=table_id, party_size=party_size,
-                   starts_at=_start(restaurant, table_id, local, party_size))
+    table_ids, starts_at = _placed(restaurant, table_ids, local, party_size)
+    return replace(current, table_ids=table_ids, party_size=party_size, starts_at=starts_at)
 
 
 def commit(state: State, bookings: list[Reservation]) -> None:
     """Store `bookings` together: new bookings, or new versions of existing ones.
 
-    Each must be free of every other confirmed booking on its table: those in `bookings`,
-    and those not listed. A listed booking's previous occupancy no longer counts. If any
-    overlaps, 409 `table_unavailable` and nothing is stored.
+    Each must be free, on every one of its tables, of every other confirmed booking there:
+    those in `bookings`, and those not listed. A listed booking's previous occupancy no
+    longer counts. If any overlaps, 409 `table_unavailable` and nothing is stored.
     """
     listed = {booking.reference for booking in bookings}
     for index, booking in enumerate(bookings):
-        table = (booking.restaurant_id, booking.table_id)
-        rivals = [b for b in state.confirmed_on(*table) if b.reference not in listed]
-        rivals += [b for b in bookings[:index] if (b.restaurant_id, b.table_id) == table]
         duration = state.restaurants[booking.restaurant_id].duration
-        if any(overlaps(booking.starts_at, rival.starts_at, duration) for rival in rivals):
-            raise ApiError(409, "table_unavailable", "the table is taken at that time")
+        for table_id in booking.table_ids:
+            rivals = [b for b in state.confirmed_on(booking.restaurant_id, table_id)
+                      if b.reference not in listed]
+            rivals += [b for b in bookings[:index] if b.restaurant_id == booking.restaurant_id
+                       and table_id in b.table_ids]
+            if any(overlaps(booking.starts_at, rival.starts_at, duration) for rival in rivals):
+                raise ApiError(409, "table_unavailable", "a table is taken at that time")
     for booking in bookings:
         state.put_reservation(booking)
 
@@ -117,12 +122,12 @@ def create(state: State, user: User, body: dict) -> dict:
     changes = read_changes(reader, body, "", partial=False)
     reader.raise_first()
     restaurant = find_restaurant(state, restaurant_id)
-    starts_at = _start(restaurant, changes.table_id, changes.local, changes.party_size)
+    table_ids, starts_at = _placed(restaurant, changes.table_ids, changes.local, changes.party_size)
     booking = Reservation(
         id=fresh(lambda: f"res_{secrets.token_hex(8)}", {r.id for r in state.reservations.values()}),
         reference=fresh(lambda: "".join(secrets.choice(REFERENCE_ALPHABET)
                                         for _ in range(REFERENCE_LENGTH)), state.reservations),
-        user_id=user.id, restaurant_id=restaurant.id, table_id=changes.table_id,
+        user_id=user.id, restaurant_id=restaurant.id, table_ids=table_ids,
         party_size=changes.party_size, starts_at=starts_at, status=CONFIRMED,
         created_at=timeutil.now())
     commit(state, [booking])

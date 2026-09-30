@@ -40,13 +40,25 @@ def at(path: str, name: str | int) -> str:
 
 class FieldReader:
     def __init__(self) -> None:
+        self._foremost: str | None = None
         self._wrong_type: str | None = None
         self._invalid: str | None = None
+
+    def reject_foremost(self, path: str, reason: str) -> None:
+        """Record an invalid value (422) that a stated rule ranks before any wrong type."""
+        if self._foremost is None:
+            self._foremost = f"{path} {reason}"
 
     def reject(self, path: str, reason: str) -> None:
         """Record a missing or invalid value (422)."""
         if self._invalid is None:
             self._invalid = f"{path} {reason}"
+
+    @staticmethod
+    def _has_type(value: Any, kind: str) -> bool:
+        """Whether `value` has JSON type `kind`: booleans are never numbers, and `null` has
+        no type a field asks for."""
+        return not isinstance(value, bool) and isinstance(value, _JSON_TYPES[kind])
 
     def _reject_type(self, path: str, kind: str) -> None:
         """Record a wrong JSON type (400)."""
@@ -55,17 +67,14 @@ class FieldReader:
 
     def read(self, obj: dict, name: str, kind: str, path: str = "", *,
              required: bool = True) -> Any:
-        """`obj[name]` when it has JSON type `kind`; otherwise None, with the problem recorded.
-
-        Booleans are never numbers here, and `null` is a wrong type like any other.
-        """
+        """`obj[name]` when it has JSON type `kind`; otherwise None, with the problem recorded."""
         where = at(path, name)
         if name not in obj:
             if required:
                 self.reject(where, "is required")
             return None
         value = obj[name]
-        if isinstance(value, bool) or not isinstance(value, _JSON_TYPES[kind]):
+        if not self._has_type(value, kind):
             self._reject_type(where, kind)
             return None
         return value
@@ -131,20 +140,31 @@ class FieldReader:
             return None
         return number
 
+    def elements(self, values: list, kind: str, path: str) -> list[tuple[str, Any]]:
+        """The elements of the array at `path` that have JSON type `kind`, each with its
+        display path; every other element is recorded as a wrong type."""
+        found = []
+        for index, value in enumerate(values):
+            if self._has_type(value, kind):
+                found.append((at(path, index), value))
+            else:
+                self._reject_type(at(path, index), kind)
+        return found
+
     def objects(self, obj: dict, name: str, path: str = "", *,
                 required: bool = True) -> list[tuple[str, dict]]:
         """The object elements of an array member, each with its display path."""
         items = self.read(obj, name, "array", path, required=required) or []
-        found = []
-        for index, item in enumerate(items):
-            where = at(at(path, name), index)
-            if isinstance(item, dict):
-                found.append((where, item))
-            else:
-                self._reject_type(where, "object")
-        return found
+        return self.elements(items, "object", at(path, name))
+
+    def strings(self, values: list, path: str) -> list[str] | None:
+        """An array whose elements must all be strings; None when one is not."""
+        found = self.elements(values, "string", path)
+        return [value for _, value in found] if len(found) == len(values) else None
 
     def raise_first(self) -> None:
+        if self._foremost is not None:
+            raise invalid(self._foremost)
         if self._wrong_type is not None:
             raise malformed(self._wrong_type)
         if self._invalid is not None:
@@ -152,6 +172,6 @@ class FieldReader:
 
     def raise_as_invalid(self) -> None:
         """Raise the first problem as 422 whatever its kind, as an imported state's (§10)."""
-        problem = self._wrong_type or self._invalid
+        problem = self._foremost or self._wrong_type or self._invalid
         if problem is not None:
             raise invalid(problem)

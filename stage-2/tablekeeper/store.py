@@ -24,8 +24,8 @@ class Receipt:
     response: dict
 
 
-def _table_key(reservation: Reservation) -> tuple[str, str]:
-    return reservation.restaurant_id, reservation.table_id
+def _table_keys(reservation: Reservation) -> list[tuple[str, str]]:
+    return [(reservation.restaurant_id, table_id) for table_id in reservation.table_ids]
 
 
 @dataclass
@@ -36,6 +36,7 @@ class State:
     restaurants: dict[str, Restaurant] = field(default_factory=dict)  # fixture order
     reservations: dict[str, Reservation] = field(default_factory=dict)  # by reference, creation order
     # Confirmed bookings per (restaurant id, table id), by reference: the occupancy index.
+    # A booking of a pair is listed under both of its tables.
     table_bookings: dict[tuple[str, str], dict[str, Reservation]] = field(default_factory=dict)
     receipts: dict[Scope, Receipt] = field(default_factory=dict)
 
@@ -52,10 +53,12 @@ class State:
         index current."""
         previous = self.reservations.get(reservation.reference)
         if previous is not None:
-            self.table_bookings.get(_table_key(previous), {}).pop(previous.reference, None)
+            for key in _table_keys(previous):
+                self.table_bookings.get(key, {}).pop(previous.reference, None)
         self.reservations[reservation.reference] = reservation
         if reservation.status == CONFIRMED:
-            self.table_bookings.setdefault(_table_key(reservation), {})[reservation.reference] = reservation
+            for key in _table_keys(reservation):
+                self.table_bookings.setdefault(key, {})[reservation.reference] = reservation
 
     def confirmed_on(self, restaurant_id: str, table_id: str) -> Iterable[Reservation]:
         return self.table_bookings.get((restaurant_id, table_id), {}).values()
