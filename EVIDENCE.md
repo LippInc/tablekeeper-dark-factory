@@ -61,3 +61,69 @@ items on the board but not in the record: 0.
   - Private data: 0 user-home paths; the only email addresses are `example.com` fixtures, the seat addresses `*@factory-seats.invalid` and the operator's GitHub noreply address. Key, `.env`, database and binary files: 0.
   - Files outside `stage-1/` and `acceptance/` are the operator's setup (README.md, FACTORY.md, mandates/, factory/, .gitattributes, .gitignore).
 - Organizers' structure check `python -m harness check <clone> --track tablekeeper`: `room.json is missing; …` and `1 problem(s)`. The room download is the operator's step at submission.
+
+## Unit "Stage 2: online booking and combined tables"
+
+Packaged commit: `1ec2f587b2713e2c3733517142929a0e7c8bdd37`. Acceptance checks at
+`ac31b64bc5f472ff0ece8e5651cfe71e115185b2`, whose `stage-1/`, `stage-2/` and `design/` trees are
+identical to 1ec2f58's. Design system `design/DESIGN.md` at 9069de8, the same as at 1ec2f58.
+Packaging run `tk2-release-clerk-pkg2-0930070442`, 2026-09-30. The stage-2 checks run with the
+stage-1 service of the same checkout as `--previous-base-url`. Load, race and upgrade files
+run alone. `TABLEKEEPER_SECOND_URL` points at a second container of the stage-2 image.
+
+| Item | Unit | Commit | Verdict (verifier; designer on screen items) | Proving command | Result at packaging |
+|---|---|---|---|---|---|
+| S2-I1 Carry forward and combined tables in the API | Stage 2: online booking and combined tables | bd6c9abead35821d803ad915eca66d21b6e3fb32 (copy commit 00b8caf = stage-1 at ebbdfbd) | VERIFIED (acceptance 1ea7290) | `pytest /acc/stage-2/test_s2_i1_combined.py`, `/acc/stage-2/test_s2_i1_races.py`; every `/acc/stage-1/*.py` against the stage-2 service | 64 passed; 4 passed; stage-1 acceptance 377 passed |
+| S2-I2 Upgrade from stage 1 | Stage 2: online booking and combined tables | a29624e82ccbb1fce3882a0f56407bc3362363f7 | VERIFIED (acceptance 58bac83); earlier REFUTED at cb07f6d (a schema-1 record without table_id imported), fixed by a29624e | `pytest /acc/stage-2/test_s2_i2_upgrade.py` with `--previous-base-url` = stage-1 service; provided `test_sample.py::test_preceding_stage_accounts_survive_import` | 26 passed; provided stage_2 25 passed |
+| S2-I3 UI shell, assets, header, signup and login | Stage 2: online booking and combined tables | 654449e3f135c7372b54dc646793797f9333c180 | VERIFIED + APPROVED (acceptance 4cca83d, d4ab607) | `pytest /acc/stage-2/test_s2_i3_shell.py`; `bash acceptance/stage-2/asset_checks.sh <stage-2>` | 30 passed; asset checks 3 passed, 0 failed |
+| S2-I4 Search and availability grid | Stage 2: online booking and combined tables | a29624e82ccbb1fce3882a0f56407bc3362363f7 | VERIFIED + APPROVED (acceptance 5d9ab31, 3237495) | `pytest /acc/stage-2/test_s2_i4_grid.py` | 32 passed |
+| S2-I5 Booking panel and confirmation | Stage 2: online booking and combined tables | 140dc309b39186c3c912fce3ae1ba62cb89538a1 (also verified at 869e80c, 450cf88) | VERIFIED + APPROVED (acceptance da96d65, 68c98ff) | `pytest /acc/stage-2/test_s2_i5_booking.py`, `/acc/stage-2/test_s2_i5_restaurant_list.py` | 30 passed; 5 passed |
+| S2-I6 Lookup screen | Stage 2: online booking and combined tables | 1ec2f587b2713e2c3733517142929a0e7c8bdd37 | VERIFIED + APPROVED (acceptance ac31b64) | `pytest /acc/stage-2/test_s2_i6_lookup.py` | 20 passed |
+
+Board check: the board (plan v2.31 stage 2, "Board and commits") lists 6 items of this unit,
+all `verified`; the record lists 6 items, all VERIFIED; items in the record but not on the
+board: 0; items on the board but not in the record: 0.
+
+### Packaging of "Stage 2: online booking and combined tables" at 1ec2f58
+
+- Delivery layout (task: `stage-2\` is a copy of `stage-1\` carried forward, with the service
+  source, a Dockerfile and RUN.md, no nested .git):
+  - `stage-2/Dockerfile`, `RUN.md`, `requirements.txt`, `tablekeeper/` (Python modules plus
+    `static/` with `index.html`, `css/app.css`, 14 `js/*.js`, and 5 woff2 fonts with 2 OFL `LICENSE`
+    files, byte-identical to the task's supplied fonts).
+  - Fresh clone: nested `.git` below the root 0, uncommitted or ignored files 0, CRLF files 0.
+  - `stage-1/` unchanged since ebbdfbd (`git diff --quiet ebbdfbd 1ec2f58 -- stage-1`).
+  - `stage-2/RUN.md` is byte-identical to `stage-1/RUN.md`: its heading reads "Running
+    Tablekeeper (stage 1)" and it names neither stage 2 nor the screens. Its command builds and
+    starts the stage-2 service (container check C4 PASS). Reported to the architect.
+- Gate 1, build, offline start and first unit of work: **PASS**.
+  - The build succeeded from the clean checkout, including `docker build --no-cache --pull`.
+  - Healthy 2 s after `docker run` on the internal network, at `--cpus 2 --memory 2g`. Outbound from the service's network namespace fails: `[Errno 101] Network is unreachable`, and DNS fails with `Temporary failure in name resolution`.
+  - First unit of work, in-network:
+    - `/`, `/signup`, `/login` and `/lookup` each answer 200 `text/html; charset=utf-8`.
+    - Reset 204 and login 200; availability 200.
+    - Single-table booking 201; combined-table booking 201; replay 200 with an identical body; read 200.
+    - A pair member booked again gives 409 `table_unavailable`.
+    - Every request completed in ≤ 64 ms; memory 60.2 MiB of 2 GiB.
+  - Screens with no outbound network: `checks-2\tk2-tools\shoot.py` in the runner on the internal network, at 375 and 1280. It captured before search, signup, lookup, after search and booked, each with `no-sideways-scroll`. Result: `offsite requests: 0; problems: 0`. Every asset request went to the service's own `/assets/` (css, 14 scripts, Cormorant and Hanken Grotesk fonts).
+  - Negative controls:
+    - The same image with a start that first fetches `https://pypi.org` exits (code 1, `URLError … Temporary failure in name resolution`) on the internal network; on the default bridge it is healthy after 2 s.
+    - The same image with an off-site font stylesheet added to the screen shell is flagged: `OFFSITE request https://fonts.googleapis.com/css2?family=Inter`, rc 1.
+  - Container checks on `stage-2/`: 4 passed, 0 failed, including RUN.md's command with only the host port changed.
+- Checks, in-network against the packaged image:
+  - Provided `stage_1` 120 passed and `stage_2` 25 passed.
+  - Acceptance `stage-1` (12 files) and `stage-2` (8 files): all passed, 0 failed.
+  - Organizers' harness `--repo <clone of 1ec2f58> --stage 2 --mode isolated`: `stage 1: pass` (120), `stage 2: pass` (25), `stage 3: fail` (1 failed), `highest contiguous stage: 2`, `claimed stage: 2 on the shipped checks`, overshoot None, revision 1ec2f58. The same result in host mode.
+- Reverse check (the full `stage_3` suite against the packaged stage-2, previous = a stage-2 container): 6 failed, 1 passed. Every failure is stage-3 behaviour, and no failure is a check that could not run:
+  - `POST /restaurants/r_anker/policies` gives 404.
+  - The availability `explain` field is missing (`KeyError: 'explain'`), in 2 checks.
+  - `GET /reservations/{ref}/history` gives 404, in 2 checks.
+  - Recurring-agreement adoption gives 404.
+- Gate 2, no credentials, private data or unrelated files: **PASS**.
+  - gitleaks v8.30.1 (`--network none`): history of all 44 commits reachable from ac31b64, and the tree: `no leaks found`.
+  - Negative control: a fake `ghp_` token planted in a scratch copy of `stage-2` is reported (`github-pat`, `leaks found: 1`).
+  - Organizers' `harness check`: its credential scan reports nothing.
+  - Private data: 0 user-home paths. Email addresses are only `example.com` fixtures, `*@factory-seats.invalid` seat addresses and the operator's GitHub noreply address. Key, `.env`, database and archive files: 0.
+  - The only binary files are the 5 supplied fonts.
+  - Files outside `stage-*/`, `acceptance/` and `design/` are the operator's setup plus this record.
+- Organizers' structure check `python -m harness check <clone of ac31b64> --track tablekeeper`: `room.json is missing; …` and `1 problem(s)`. The room download is the operator's step at submission.
