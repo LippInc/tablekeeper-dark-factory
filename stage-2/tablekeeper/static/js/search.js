@@ -46,13 +46,39 @@ function searchBand(restaurants) {
   return { form, restaurant: restaurant.input, date: date.input, party: party.input };
 }
 
+// The restaurants to search, or null when the service did not give them.
+async function listRestaurants() {
+  try {
+    const { status, data } = await call("GET", "/restaurants");
+    return status === 200 ? data.restaurants : null;
+  } catch {
+    return null;
+  }
+}
+
 export async function renderSearch(main) {
   const results = el("div", { class: "results", "aria-live": "polite" });
-  const { data } = await call("GET", "/restaurants");
-  const restaurants = data.restaurants;
+  const layout = el("div", { class: "search-layout" }, results);
+  main.append(layout);
+  results.append(resultsNotice({
+    eyebrow: dateInWords(today()), loading: true,
+    heading: "Finding restaurants", sentence: "Opening the book of tables.",
+  }));
+  const restaurants = await listRestaurants();
+  if (!restaurants) {
+    results.replaceChildren(resultsNotice({
+      tone: "failed", eyebrow: dateInWords(today()), heading: "We could not load the restaurants",
+      sentence: "The restaurants did not answer. Nothing was booked. Try again in a moment.",
+    }, button("secondary", "Try again", {
+      onclick: () => {
+        main.replaceChildren();
+        renderSearch(main);
+      },
+    })));
+    return;
+  }
   if (restaurants.length === 0) {
-    results.append(resultsNotice({ heading: "No restaurants are taking bookings yet", sentence: "Please come back soon." }));
-    main.append(el("div", { class: "search-layout" }, results));
+    results.replaceChildren(resultsNotice({ heading: "No restaurants are taking bookings yet", sentence: "Please come back soon." }));
     return;
   }
   const band = searchBand(restaurants);
@@ -163,7 +189,6 @@ export async function renderSearch(main) {
   band.restaurant.addEventListener("change", showBeforeSearch);
   band.date.addEventListener("change", showBeforeSearch);
   showBeforeSearch();
-  main.append(
-    el("section", { class: "search-band", "aria-label": "Find a table" }, el("div", { class: "band-inner" }, band.form)),
-    el("div", { class: "search-layout" }, results, panel.element));
+  layout.before(el("section", { class: "search-band", "aria-label": "Find a table" }, el("div", { class: "band-inner" }, band.form)));
+  layout.append(panel.element);
 }
