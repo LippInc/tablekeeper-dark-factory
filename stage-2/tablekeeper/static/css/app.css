@@ -366,6 +366,13 @@ a { color: inherit; }
 
 .button-text:hover { color: var(--tk-text); }
 
+/* Line breaks (DESIGN.md section 2): wrapping text leaves no word alone on its last line,
+   and a phrase marked to keep together never splits. */
+.lede, .card-lede, .row-description, .panel-description, .notice-title, .notice-body,
+.results-notice-sentence { text-wrap: pretty; }
+
+.keep-together { white-space: nowrap; }
+
 /* ---- 3.8 / 3.10 Notices ------------------------------------------------------------ */
 
 .notice {

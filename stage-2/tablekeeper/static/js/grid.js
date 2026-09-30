@@ -49,12 +49,13 @@ function cell(tables, slot, onChoose) {
 }
 
 function row(tables, slots, onChoose, tooSmall) {
+  const [kind, seats] = rowDescription(tables);
   return el("div", { class: tooSmall ? "table-row table-row-small" : "table-row" },
     el("div", { class: "row-name" },
       el("div", { class: "drawing-box" }, drawing(tables.map((table) => table.capacity), "small")),
       el("div", { class: "row-words" },
         el("p", { class: "row-title" }, seatingName(tables)),
-        el("p", { class: "row-description" }, rowDescription(tables)))),
+        el("p", { class: "row-description" }, kind, el("span", { class: "keep-together" }, seats)))),
     el("div", { class: "row-times" }, slots.map((slot) => cell(tables, slot, onChoose))));
 }
 
