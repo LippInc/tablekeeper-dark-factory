@@ -313,3 +313,77 @@ record: 0.
   - Private data: 0 user-home paths; no email addresses beyond `example.com`, the seat addresses and the operator's noreply. Key, `.env` and database files: 0.
   - The only binary files are 15 woff2 fonts (5 each in `stage-2`, `stage-3` and `stage-4`), byte-identical to the supplied ones.
 - Organizers' structure check on a clone of 63564d9: `room.json is missing; …` and `1 problem(s)` (rc 1). This is the operator's step at submission.
+
+## Unit "Stage 4: seating changes and recurring amendments"
+
+Packaged commit: `3d4c2f26bba501eed8b85bf9fa133b08cc4bf99b`. Acceptance checks at
+`68ec0f0bb94c84d42376e882a60c180fbe277098` (main); every commit after 3d4c2f2 touches
+`acceptance/` or this record only. Design system `design/DESIGN.md` at b1ed386, the same as at
+3d4c2f2. Packaging run `tk2-release-clerk-pkg4-0930213333`, 2026-09-30.
+
+The checks run against the stage-4 service with the stage-3, stage-2 and stage-1 services of
+the same checkout beside it, plus a second stage-4. `--previous-base-url` is stage-1 for stage-1
+and stage-2 suites and folders, stage-2 for stage 3, and stage-3 for stage 4. Two controls also
+run: `TABLEKEEPER_CONTROL_URL` = b9c3881's stage-4 and `TABLEKEEPER_BASE_UI_URL` = 5b77876's
+stage-4. Each file runs alone with `-rA`. Deselected: the 7 H8 node ids of
+`acceptance/stage-3/README.md` in the stage-1 and stage-2 folders, and the 2 schema-4 node ids
+of `acceptance/stage-4/README.md` in the stage-3 folder. There is no stage 5, so there is no
+reverse check.
+
+| Item | Unit | Commit | Verdict (verifier; designer on the screen item) | Proving command | Result at packaging |
+|---|---|---|---|---|---|
+| S4-I1 Carry forward and the restaurant revision | Stage 4: seating changes and recurring amendments | b9c38817a3ac937b50182b4ba668db5312489315 (copy 800b312 = stage-3 at c8cb447) | VERIFIED (acceptance e729ae8) | `pytest /acc/stage-4/test_s4_i1_revision.py`, `test_s4_i1_races.py`; every `/acc/stage-1..3` file with the deselect lists | 41; 1 passed; stage-1 376 + 1 deselected, stage-2 205 + 6 deselected, stage-3 (15 files) all passed + 2 deselected |
+| S4-I2 Closure preview (the seating planner) | Stage 4: seating changes and recurring amendments | 7ede1469c97a99c7eaa3af1e84b5d2c7418a9fc8 | VERIFIED (acceptance a310e80) | `pytest /acc/stage-4/test_s4_i2_preview.py`, `test_s4_i2_planner.py`, `test_s4_i2_worst.py` | 61; 1 (240 cases, 0 wrong, slowest preview 0.013 s); 2 passed |
+| S4-I3 Plan application and closures | Stage 4: seating changes and recurring amendments | f5d48806050a64448c4bb60da3279bdbbe108806 | VERIFIED (acceptance 854fff7) | `pytest /acc/stage-4/test_s4_i3_apply.py`, `test_s4_i3_races.py` | 44; 24 passed |
+| S4-I4 Series amendments | Stage 4: seating changes and recurring amendments | 1f0db91e8c2a7cbb95162bad1402d19bc217dccb | VERIFIED (acceptance 8eb1102) | `pytest /acc/stage-4/test_s4_i4_amend.py`, `test_s4_i4_races.py` | 44; 11 passed |
+| S4-I5 Export and import across stages 1–4 | Stage 4: seating changes and recurring amendments | 4fceee2e3699b9e0e7115ee56adc038e5ff87d93 | VERIFIED (acceptance dd26fb2) | `pytest /acc/stage-4/test_s4_i5_import.py` | 12 passed |
+| S4-I6 Screens reflect an applied plan | Stage 4: seating changes and recurring amendments | 3d4c2f26bba501eed8b85bf9fa133b08cc4bf99b | VERIFIED + APPROVED (acceptance 68ec0f0) | `pytest /acc/stage-4/test_s4_i6_screens.py` (with `TABLEKEEPER_BASE_UI_URL`) | 15 passed |
+| S4-I7 Dense availability within 5 s for every question mix | Stage 4: seating changes and recurring amendments | a3f9349dd7c687d09ee33440dfe71f4e2d7daf91 | VERIFIED (acceptance f18c232) | `pytest /acc/stage-4/test_s4_i7_dense.py` (with `TABLEKEEPER_CONTROL_URL`), `test_s4_i7_answers.py`, `test_s4_i7_consistency.py` | 2; 4; 1 passed. Slowest new/control: burst a explained 0.93/3.37 s (0.28), burst b explained 0.92/3.92 s (0.23), plain 0.75/1.50 and 0.75/2.19 s |
+
+Board check: the board (plan v4.14 stage 4, "Board and commits") lists 7 items of this unit
+(S4-I1..S4-I7), all `verified`; the record lists 7 items, all VERIFIED; items in the record but
+not on the board: 0; items on the board but not in the record: 0.
+
+### Packaging of "Stage 4: seating changes and recurring amendments" at 3d4c2f2
+
+- Delivery layout (task: `stage-4\` is a copy of `stage-3\` carried forward, with the service
+  source, a Dockerfile and RUN.md, no nested .git):
+  - `stage-4/` holds 48 files, with `RUN.md` titled "# Running Tablekeeper (stage 4)". Its 5 woff2
+    fonts and 2 OFL `LICENSE` files are byte-identical to the supplied ones.
+  - Fresh clone: nested `.git` 0, uncommitted or ignored files 0, CRLF files 0.
+  - Delivered folders unchanged: `stage-1/` since ebbdfbd, `stage-2/` since fa30051, `stage-3/`
+    since 5b77876.
+- Gate 1, build, offline start and first unit of work: **PASS**.
+  - The build succeeded from the clean checkout with `docker build --no-cache --pull`.
+  - Healthy 1 s after `docker run` on the internal network, at `--cpus 2 --memory 2g`. Outbound fails: `[Errno 101] Network is unreachable`, and DNS fails with `Temporary failure in name resolution`.
+  - First unit of work, in-network:
+    - The four screens answer 200 `text/html`.
+    - Reset 204, login 200 and availability 200.
+    - Single-table booking 201; combined-table booking 201; replay 200 with an identical body; read 200; a pair member booked again gives 409.
+    - `explain=true` 200; history 200; decision 200; policies 200.
+    - Closure preview 201 (t_3, 21:00–22:00, `moved_count=0`) and apply 201 (restaurant revision 2 → 3). Afterwards 21:00 offers `['t_1', 't_2']` without t_3.
+    - Every request completed in ≤ 58 ms.
+  - Screens at 375 and 1280: `no-sideways-scroll`, `offsite requests: 0; problems: 0`. Every css, font and js request went to the service.
+  - Negative controls:
+    - The start that first fetches pypi.org exits (code 1, `URLError … Temporary failure in name resolution`) on the internal network; on the default bridge it is healthy after 2 s.
+    - An off-site font stylesheet added to the shell is flagged: `OFFSITE request https://fonts.googleapis.com/css2?family=Inter` ×6, rc 1.
+  - Container checks on `stage-4/`: 4 passed, 0 failed. Asset checks: 3 passed, 0 failed.
+  - Memory after every check had run: 362.1 MiB of 2 GiB.
+  - Slowest in every dense burst, all `failed=0`:
+    - S4-I7 1.01 s and S3-I7 0.93 s; `test_s3_i2_dense` explained identical 0.91 s.
+    - S1-I7 1-min grid 0.13 s; S2-I1 dense pairs 0.12 s; S3-I1 two durations 0.18 s.
+- Checks:
+  - Provided `stage_1` 120, `stage_2` 25, `stage_3` 7 and `stage_4` 6 passed.
+  - Acceptance stage-1..stage-4, file by file: all passed, 0 failed; 9 deselected, exactly the 7 + 2 listed.
+  - Harness `--repo <clone of 3d4c2f2> --stage 4 --mode isolated`:
+    - `stage 1: pass` (120), `stage 2: pass` (25), `stage 3: pass` (7), `stage 4: pass` (6).
+    - `highest contiguous stage: 4`, `claimed stage: 4 on the shipped checks`, share 1.0, overshoot None, revision 3d4c2f2.
+    - Upgrade sources: 2 from stage-1, 3 from stage-2, 4 from stage-3.
+    - The same result in host mode.
+- Reverse check: none, because there is no stage 5.
+- Gate 2, no credentials, private data or unrelated files: **PASS**.
+  - gitleaks v8.30.1: history of 84 commits (68ec0f0), and the tree: `no leaks found`.
+  - Negative control: a fake `ghp_` token planted in a scratch copy of `stage-4` is reported (`github-pat`, `leaks found: 1`).
+  - Private data: 0 user-home paths; no email addresses beyond `example.com`, the seat addresses and the operator's noreply. Key, `.env` and database files: 0.
+  - The only binary files are 15 woff2 fonts, 0 of any other kind.
+- Organizers' structure check on a clone of 68ec0f0: `room.json is missing; …` and `1 problem(s)` (rc 1). This is the operator's step at submission.
