@@ -246,3 +246,70 @@ board: 0; items on the board but not in the record: 0.
   - Private data: 0 user-home paths; no email addresses beyond `example.com`, the seat addresses and the operator's noreply. Key, `.env` and database files: 0.
   - The only binary files are the 10 supplied fonts (5 in `stage-2`, 5 in `stage-3`).
 - Organizers' structure check on a clone of 4dd4239: `room.json is missing; …` and `1 problem(s)` (rc 1). This is the operator's step at submission.
+
+### Re-packaging of "Stage 3: booking policies, history and recurring reservations" at 5b77876
+
+This supersedes the packaging at c8cb447 above for this unit's delivered folder; that entry
+stays as recorded. Packaged commit: `5b77876d77eedb0d289af0b156d2f72aa06ec134`. It answers
+finding F2-S4: the delivered c8cb447 render path exceeded the task's 5 s per request in dense
+bursts (5.01–6.03 s in the verifier's runs). The correction is S3-I7.
+- Differences from c8cb447 in `stage-3/`: `tablekeeper/http.py`, `schedule.py`, `store.py` and `timeutil.py` only.
+- Stage-4 words (`restaurant_revision`, `closure`, `replan`, `plan_id`, `planner`, `reassigned`, `holds_on`) in `stage-3/tablekeeper` at 5b77876: 0 lines.
+- Acceptance checks at `63564d9cb747b8a7bb22ab777a6e1f37a5a60f64` (main). Every commit after 5b77876 touches `stage-4/` or `acceptance/` only; `stage-1/`, `stage-2/` and `stage-3/` are identical.
+- Design for stage 3 remains `design/DESIGN.md` at 917186b. The one later design commit, b1ed386 ("S4-design: …"), concerns stage 4.
+- Packaging run `tk2-release-clerk-pkg3-0930201107`, 2026-09-30. It adds a c8cb447 stage-3 container as `TABLEKEEPER_CONTROL_URL` for `test_s3_i7_dense.py`. Timings are printed with `-rA`.
+
+| Item | Unit | Commit | Verdict (verifier) | Proving command | Result at packaging |
+|---|---|---|---|---|---|
+| S3-I7 Stage-3 correction: dense availability within 5 s | Stage 3: booking policies, history and recurring reservations | 5b77876d77eedb0d289af0b156d2f72aa06ec134 | VERIFIED (acceptance 63564d9); answers finding F2-S4 against the c8cb447 packaging | `pytest /acc/stage-3/test_s3_i7_dense.py` (with `TABLEKEEPER_CONTROL_URL` = c8cb447), `test_s3_i7_answers.py`, `test_s3_i7_consistency.py`, `test_s3_i2_dense.py` | 2; 3; 1; 4 passed. Slowest new/control: burst a explained 0.96/3.27 s (ratio 0.29), plain 0.85/1.94; burst b explained 0.99/4.04 s (0.24), plain 0.78/2.41. `test_s3_i2_dense`: explained identical 1.72 s, explained different 1.12 s, plain 0.22/0.55 s |
+
+S3-I1..S3-I6 carry over from the entries above. At 5b77876 the release clerk re-ran every
+proving command listed for them, with the same counts: stage-3 policies 59, terms 27, races 4,
+upgrade 6, explain 18, reuse 8, history 13, series 35 + races 2, import 21, screens 17; stage-1
+376 + 1 deselected; stage-2 205 + 6 deselected.
+
+Board check: the stage-3 board (plan v2.18) lists S3-I1..S3-I6 verified, and the current plan
+(v4.10) lists S3-I7 verified; 7 items of this unit. The record lists 7 items for this unit,
+all VERIFIED. Items in the record but not on a board: 0; items on a board but not in the
+record: 0.
+
+- Delivery layout: as at c8cb447. `stage-3/` has 46 files and `RUN.md` titled "(stage 3)"; its 7
+  font and licence files are byte-identical to the supplied ones. Fresh clone: nested `.git` 0,
+  uncommitted or ignored files 0, CRLF files 0. `stage-1/` unchanged since ebbdfbd and
+  `stage-2/` since fa30051.
+- Gate 1, build, offline start and first unit of work: **PASS**.
+  - The build succeeded from the clean checkout with `docker build --no-cache --pull`.
+  - Healthy 2 s after `docker run` on the internal network, at `--cpus 2 --memory 2g`. Outbound fails: `[Errno 101] Network is unreachable`, and DNS fails with `Temporary failure in name resolution`.
+  - First unit of work, in-network:
+    - The four screens answer 200 `text/html`.
+    - Reset 204, login 200 and availability 200.
+    - Single-table booking 201; combined-table booking 201 at revision 1 under policy 0; replay 200 with an identical body; read 200.
+    - A pair member booked again gives 409 `table_unavailable`.
+    - `explain=true` 200 with 3 tables per slot; history 200; decision 200; policies 200.
+    - Every request completed in ≤ 58 ms.
+  - Screens at 375 and 1280: `no-sideways-scroll`, `offsite requests: 0; problems: 0`. Every css, font and js request went to the service.
+  - Negative controls:
+    - The start that first fetches pypi.org exits (code 1, `URLError … Temporary failure in name resolution`) on the internal network; on the default bridge it is healthy after 2 s.
+    - An off-site font stylesheet added to the shell is flagged: `OFFSITE request https://fonts.googleapis.com/css2?family=Inter` ×6.
+  - Container checks on `stage-3/`: 4 passed, 0 failed. Asset checks: 3 passed, 0 failed.
+  - Memory after every check had run: 321.3 MiB of 2 GiB (the c8cb447 control: 146.6 MiB).
+  - Slowest in every dense burst, all `failed=0`:
+    - `test_s3_i2_dense` 1.72 s, `test_s3_i7_dense` 0.99 s.
+    - S3-I1 two durations 0.29 s; S1-I7 1-min grid 0.17 s; S2-I1 dense pairs 0.12 s.
+- Checks:
+  - Provided `stage_1` 120, `stage_2` 25 and `stage_3` 7 passed.
+  - Acceptance stage-1, stage-2 and stage-3 (including the three S3-I7 files), file by file: all passed, 0 failed; 7 deselected under H8, the unchanged list.
+  - Harness `--repo <clone of 5b77876> --stage 3 --mode isolated`:
+    - `stage 1: pass` (120), `stage 2: pass` (25), `stage 3: pass` (7), `stage 4: fail` (1 failed, 4 passed under `-x`).
+    - `highest contiguous stage: 3`, `claimed stage: 3 on the shipped checks`, overshoot None, revision 5b77876.
+    - Upgrade sources: 2 from stage-1, 3 from stage-2, 4 from stage-3.
+    - The same result in host mode.
+- Reverse check (the full `stage_4` suite, previous = a second stage-3 container): 2 failed, 4 passed, 0 errors.
+  - `test_series_clock_time_can_be_changed` (`assert 404 == 201`) and `test_a_closure_preview_returns_a_plan` (`POST /restaurants/r_anker/replans -> 404`) fail: stage-4 behaviour.
+  - The 4 passing checks re-check stage-2 behaviour.
+- Gate 2, no credentials, private data or unrelated files: **PASS**.
+  - gitleaks v8.30.1: history of 82 commits (63564d9), and the tree: `no leaks found`.
+  - Negative control: a fake `ghp_` token planted in a scratch copy of `stage-3` is reported (`github-pat`, `leaks found: 1`).
+  - Private data: 0 user-home paths; no email addresses beyond `example.com`, the seat addresses and the operator's noreply. Key, `.env` and database files: 0.
+  - The only binary files are 15 woff2 fonts (5 each in `stage-2`, `stage-3` and `stage-4`), byte-identical to the supplied ones.
+- Organizers' structure check on a clone of 63564d9: `room.json is missing; …` and `1 problem(s)` (rc 1). This is the operator's step at submission.
