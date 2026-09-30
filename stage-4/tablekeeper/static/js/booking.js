@@ -8,7 +8,9 @@
 // else (no answer, a timeout, a 5xx, a body that does not parse) may or may not have booked,
 // so it is uncertain. The idempotency key belongs to the form's content: an unchanged form
 // sends the same body with the same key again, so pressing again after a lost answer or after
-// success returns the original booking; a changed field makes a new key (§7).
+// success returns the original booking; a changed field makes a new key (§7). A booked notice
+// shows the booking as it stands now, read back from the service: a replayed answer is the
+// original one, from before any seating repair moved the booking.
 
 import { call } from "./api.js";
 import { el } from "./dom.js";
@@ -70,7 +72,7 @@ function refusal({ tables, slot }, { status, error }) {
   if (error.code === "table_unavailable") {
     return {
       title: `${name} at ${timeOf(slot)} ${one ? "was" : "were"} just taken`,
-      body: "Another guest booked it a moment ago. The times are refreshed and your details are kept: choose another time or table.",
+      body: "It was booked or closed a moment ago. The times are refreshed and your details are kept: choose another time or table.",
     };
   }
   if (error.code === "party_exceeds_capacity") {
@@ -78,6 +80,17 @@ function refusal({ tables, slot }, { status, error }) {
   }
   const { field, sentence } = refusalWords(status, error, { fields: { party_size: PARTY_SIZE_PROBLEM } });
   return field ? { title: sentence, party: true } : { title: `We could not book ${name} at ${timeOf(slot)}`, body: sentence };
+}
+
+// The booked reservation as it stands now (Q25), or the answer itself when it cannot be read.
+async function current(reservation) {
+  try {
+    const { status, data } = await call("GET", `/reservations/${encodeURIComponent(reservation.reference)}`,
+      { signal: AbortSignal.timeout(BOOKING_TIMEOUT_MS) });
+    return status === 200 && data?.reference === reservation.reference ? data : reservation;
+  } catch {
+    return reservation;
+  }
 }
 
 // The confirmation, built only from the service's reservation.
@@ -134,6 +147,7 @@ function bookingForm(choice, onTaken) {
     } catch {
       outcome = { kind: "uncertain" };
     }
+    if (outcome.kind === "booked") outcome = { ...outcome, reservation: await current(outcome.reservation) };
     // The refreshed times are in place before the refusal is shown; a closed form refreshes nothing.
     if (outcome.error?.code === "table_unavailable" && form.isConnected) await onTaken();
     sending = false;
