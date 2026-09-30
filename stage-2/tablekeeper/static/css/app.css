@@ -169,7 +169,7 @@ a { color: inherit; }
 }
 
 .site-header-inner {
-  max-width: 1120px;
+  max-width: calc(1120px + 2 * var(--tk-gutter));
   margin: 0 auto;
   padding: 0 var(--tk-gutter);
   display: grid;
@@ -464,7 +464,7 @@ a { color: inherit; }
 }
 
 .band-inner, .search-layout {
-  max-width: 1120px;
+  max-width: calc(1120px + 2 * var(--tk-gutter));
   margin: 0 auto;
   padding-left: var(--tk-gutter);
   padding-right: var(--tk-gutter);
@@ -569,4 +569,281 @@ a { color: inherit; }
 
 @media (prefers-reduced-motion: reduce) {
   * { transition: none !important; }
+}
+
+/* ---- 5.1 Results and booking panel layout -------------------------------------------- */
+
+.search-layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  column-gap: var(--tk-s7);
+  align-items: start;
+}
+
+@media (min-width: 1024px) {
+  .search-layout { grid-template-columns: minmax(0, 1fr) 320px; }
+}
+
+.availability .page-title { margin-bottom: 0; }
+
+.availability .results-notice { margin-bottom: 0; }
+
+/* 3.9 composed states */
+.results-notice-failed {
+  border-top: 0;
+  border-left: 3px solid var(--tk-refused);
+  padding-left: var(--tk-s5);
+}
+
+.results-notice .button { margin-top: var(--tk-s5); }
+
+.loading-track {
+  position: relative;
+  height: 3px;
+  margin-bottom: var(--tk-s4);
+  overflow: hidden;
+  background: var(--tk-rule);
+  max-width: 320px;
+}
+
+.loading-bar {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 35%;
+  height: 100%;
+  background: var(--tk-text);
+  animation: loading-slide 1.2s linear infinite;
+}
+
+@keyframes loading-slide {
+  from { transform: translateX(-100%); }
+  to { transform: translateX(290%); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .loading-bar { animation: none; }
+}
+
+/* 3.5 Legend */
+.legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--tk-s4);
+  margin: var(--tk-s5) 0 var(--tk-s4);
+  color: var(--tk-text-2);
+  font-size: 14px;
+}
+
+@media (min-width: 720px) {
+  .legend { gap: var(--tk-s5); }
+}
+
+.legend-item { display: inline-flex; align-items: center; gap: var(--tk-s2); }
+
+.swatch {
+  display: inline-block;
+  width: 28px;
+  height: 18px;
+  border-radius: 2px;
+  position: relative;
+}
+
+.swatch-open { background: var(--tk-raised); box-shadow: inset 0 -2px 0 var(--tk-control); }
+
+.swatch-taken { background: var(--tk-recess); }
+
+.swatch-taken::after {
+  content: "";
+  position: absolute;
+  left: 5px;
+  right: 5px;
+  top: 50%;
+  border-top: 1px solid var(--tk-text-taken);
+}
+
+.swatch-selected { background: var(--tk-brass); }
+
+/* 3.6 Table rows */
+.table-row {
+  display: grid;
+  gap: var(--tk-s3);
+  padding: 14px 0;
+  border-top: 1px solid var(--tk-rule);
+  min-width: 0;
+}
+
+@media (min-width: 1200px) {
+  .table-row {
+    grid-template-columns: 220px minmax(0, 1fr);
+    gap: var(--tk-s4);
+    align-items: center;
+  }
+}
+
+.row-name { display: flex; align-items: center; gap: var(--tk-s3); min-width: 0; }
+
+.drawing-box {
+  flex: none;
+  width: 72px;
+  height: 40px;
+  display: flex;
+  align-items: center;
+  color: var(--tk-text);
+}
+
+.row-words { min-width: 0; }
+
+.row-title { font-size: 17px; line-height: 1.3; font-weight: 600; }
+
+.row-description { color: var(--tk-text-2); font-size: 14px; }
+
+.table-row-small .row-title, .table-row-small .drawing-box { color: var(--tk-text-2); }
+
+.group-caption {
+  margin-top: var(--tk-s5);
+  padding: var(--tk-s2) 0;
+  border-top: 1px solid var(--tk-rule);
+  color: var(--tk-text-2);
+  font-size: 13px;
+  line-height: 1.4;
+  letter-spacing: 0.02em;
+}
+
+.group-caption + .table-row { border-top: 0; }
+
+.row-times {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 6px;
+  min-width: 0;
+}
+
+@media (min-width: 720px) {
+  .row-times {
+    grid-template-columns: repeat(auto-fill, minmax(60px, 1fr));
+    gap: var(--tk-s1);
+  }
+}
+
+.seam { fill: var(--tk-brass); }
+
+/* 3.4 Slot cells */
+.slot {
+  min-width: 0;
+  height: 52px;
+  border: 0;
+  border-radius: 2px;
+  font: italic 600 22px/1 var(--tk-display);
+  font-variant-numeric: lining-nums tabular-nums;
+  font-feature-settings: "lnum" 1, "tnum" 1;
+}
+
+/* Only the hover of an open slot is animated; becoming selected is instant. */
+.slot-open {
+  background: var(--tk-raised);
+  color: var(--tk-text);
+  box-shadow: inset 0 -2px 0 var(--tk-control);
+  cursor: pointer;
+  transition: background-color 120ms, box-shadow 120ms;
+}
+
+.slot-open:hover { background: var(--tk-raised-hover); box-shadow: inset 0 -2px 0 var(--tk-text); }
+
+.slot-taken {
+  background: var(--tk-recess);
+  color: var(--tk-text-taken);
+  text-decoration: line-through;
+  cursor: default;
+}
+
+.slot-selected {
+  background: var(--tk-brass);
+  color: var(--tk-page);
+  cursor: pointer;
+}
+
+/* ---- 3.7 Booking panel ---------------------------------------------------------------- */
+
+.booking-panel {
+  margin-top: var(--tk-s6);
+  margin-bottom: var(--tk-s7);
+  min-width: 0;
+}
+
+.booking-panel-empty { display: none; }
+
+.booking-panel-form, .booking-panel-signed-out {
+  background: var(--tk-raised);
+  border-radius: 4px;
+  border-top: 3px solid var(--tk-text);
+  padding: 20px;
+}
+
+@media (min-width: 720px) {
+  .booking-panel-form, .booking-panel-signed-out { padding: 28px; }
+}
+
+@media (min-width: 1024px) {
+  .booking-panel { margin-top: var(--tk-s7); }
+
+  .booking-panel-empty {
+    display: block;
+    background: var(--tk-raised);
+    border-radius: 4px;
+    padding: 28px;
+  }
+}
+
+.booking-panel .room-drawing { margin: var(--tk-s4) 0; }
+
+.panel-note { color: var(--tk-text-2); font-size: 14px; }
+
+.panel-drawing { margin: var(--tk-s4) 0 var(--tk-s5); color: var(--tk-text); }
+
+.panel-drawing .drawing { max-width: 100%; height: auto; }
+
+.panel-title {
+  font-family: var(--tk-display);
+  font-variant-numeric: lining-nums tabular-nums;
+  font-feature-settings: "lnum" 1, "tnum" 1;
+  font-size: 36px;
+  line-height: 1.1;
+  font-weight: 500;
+}
+
+.panel-description { color: var(--tk-text-2); font-size: 14px; }
+
+.facts {
+  display: grid;
+  grid-template-columns: 64px minmax(0, 1fr);
+  gap: var(--tk-s1) 0;
+  margin: var(--tk-s4) 0 0;
+}
+
+.facts dt { color: var(--tk-text-2); }
+
+.facts dd { margin: 0; font-weight: 500; }
+
+.booking-form-act { margin-top: 20px; }
+
+.control-party { max-width: 120px; }
+
+.booking-submit { width: 100%; margin-top: var(--tk-s5); }
+
+.footnote {
+  margin-top: var(--tk-s3);
+  color: var(--tk-text-2);
+  font-size: 13px;
+  line-height: 1.4;
+}
+
+@media (min-width: 720px) and (max-width: 1023px) {
+  .booking-form {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+    gap: var(--tk-s6);
+  }
+
+  .booking-form-act { margin-top: 0; }
 }
