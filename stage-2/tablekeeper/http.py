@@ -11,7 +11,7 @@ from starlette.requests import Request
 from starlette.responses import JSONResponse, Response
 from starlette.routing import Route
 
-from . import auth, booking, domain, fixture, idempotency, schedule, snapshot
+from . import auth, booking, domain, fixture, idempotency, schedule, snapshot, web
 from .domain import User
 from .errors import ApiError, malformed
 from .fields import FieldReader
@@ -215,7 +215,7 @@ ROUTES = [
 
 
 def create_app() -> Starlette:
-    app = Starlette(routes=ROUTES, exception_handlers={
+    app = Starlette(routes=ROUTES + web.ROUTES, exception_handlers={
         ApiError: _api_error, HTTPException: _http_error, Exception: _unexpected})
     app.state.store = Store()
     return app
