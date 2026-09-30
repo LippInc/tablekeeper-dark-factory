@@ -5,10 +5,14 @@ import asyncio
 from collections.abc import AsyncIterator, Callable, Container, Hashable, Iterable
 from contextlib import asynccontextmanager
 from dataclasses import dataclass, field
+from typing import TYPE_CHECKING
 
 from .domain import CONFIRMED, Policy, Reservation, Restaurant, User
 from .history import Entry
 from .series import Series
+
+if TYPE_CHECKING:
+    from .replans import Plan
 
 # An idempotency scope: (user id, method, path, key) (§7).
 Scope = tuple[str, str, str, str]
@@ -50,6 +54,7 @@ class State:
     # Per restaurant: one more for each successful operation that changed something there
     # (`changed`); 0 when absent, as after a reset. An import restores the exported values.
     restaurant_revisions: dict[str, int] = field(default_factory=dict)
+    plans: dict[str, Plan] = field(default_factory=dict)  # previewed seatings, by plan id
     # Rendered answers, each with the revision of the restaurant it describes at rendering.
     answers: dict[Hashable, tuple[int, bytes]] = field(default_factory=dict)
 

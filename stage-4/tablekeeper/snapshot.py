@@ -11,7 +11,7 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Any
 
-from . import timeutil
+from . import planner, timeutil
 from .auth import is_hash_record
 from .history import EVENTS, FIELDS, Change, Entry
 from .series import Occurrence, Series, add
@@ -22,6 +22,7 @@ from .idempotency import MAX_KEY_LENGTH, is_canonical_request
 from .migrations import SCHEMA, upgraded
 from .policies import read_policy
 from .records import Records
+from .replans import Plan, read_closure, view
 from .store import Receipt, Scope, State
 
 TRACK = "tablekeeper"
@@ -42,6 +43,7 @@ def export(state: State) -> dict:
                     "occurrences": [{"index": o.index, "reference": o.reference, "exception": o.exception}
                                     for o in s.occurrences]}
                    for s in state.series.values()],
+        "plans": [{"restaurant_id": plan.restaurant_id, **view(plan)} for plan in state.plans.values()],
         "receipts": [{"user_id": user_id, "method": method, "path": path, "key": key,
                       "request": receipt.request, "response": receipt.response}
                      for (user_id, method, path, key), receipt in state.receipts.items()],
@@ -115,6 +117,8 @@ def restore(body: Any) -> State:
         state.put_reservation(reservation)
     for path, item in reader.objects(data, "series"):
         _series(reader, item, path, state)
+    for path, item in reader.objects(data, "plans"):
+        _plan(reader, item, path, state)
     state.receipts = _receipts(reader, data, records.user_ids)
     reader.raise_as_invalid()
     return state
@@ -239,6 +243,49 @@ def _series(reader: FieldReader, item: dict, path: str, state: State) -> None:
         reader.reject(at(path, "id"), "is not unique")
     elif None not in (series_id, user_id, interval_weeks, revision):
         add(state, Series(series_id, user_id, interval_weeks, revision, tuple(occurrences)))
+
+
+def _plan(reader: FieldReader, item: dict, path: str, state: State) -> None:
+    """A stored plan: a closure of one of its restaurant's tables, and a seat - a table or a
+    declared pair in declared order - for each of that restaurant's bookings it names, in
+    ascending reference order, its counts agreeing with its seats."""
+    plan_id = reader.identifier(item, "plan_id", path)
+    restaurant = state.restaurants.get(reader.identifier(item, "restaurant_id", path))
+    closure = reader.read(item, "closure", "object", path)
+    closed = None if closure is None else read_closure(reader, closure, at(path, "closure"))
+    revision = reader.integer(item, "restaurant_revision", path, minimum=0)
+    unused = reader.integer(item, "unused_seats", path, minimum=0)
+    moved = reader.integer(item, "moved_count", path, minimum=0)
+    if restaurant is None:
+        reader.reject(at(path, "restaurant_id"), "is not a known restaurant")
+        return
+    options = {(table.id,) for table in restaurant.tables} | set(restaurant.combinable)
+    seats = []
+    for where, record in reader.objects(item, "assignments", path):
+        reference = reader.read(record, "reference", "string", where)
+        listed = reader.read(record, "table_ids", "array", where)
+        table_ids = None if listed is None else reader.strings(listed, at(where, "table_ids"))
+        changed = record.get("changed")
+        booking = state.reservations.get(reference)
+        if booking is None or booking.restaurant_id != restaurant.id:
+            reader.reject(at(where, "reference"), "is not a booking of the plan's restaurant")
+        elif table_ids is not None and tuple(table_ids) not in options:
+            reader.reject(at(where, "table_ids"), "must be a table or a declared pair in declared order")
+        elif not isinstance(changed, bool):
+            reader.reject(at(where, "changed"), "must be true or false")
+        elif table_ids is not None:
+            seats.append(planner.Seat(reference, tuple(table_ids), changed))
+    if closed is not None and restaurant.table(closed[0]) is None:
+        reader.reject(at(path, "closure.table_id"), "is not a table of the plan's restaurant")
+    elif [seat.reference for seat in seats] != sorted({seat.reference for seat in seats}):
+        reader.reject(at(path, "assignments"), "must name each booking once, in ascending reference order")
+    elif moved is not None and moved != sum(seat.changed for seat in seats):
+        reader.reject(at(path, "moved_count"), "must count the changed assignments")
+    elif plan_id in state.plans:
+        reader.reject(at(path, "plan_id"), "is not unique")
+    elif None not in (plan_id, closed, revision, unused, moved):
+        state.plans[plan_id] = Plan(plan_id, restaurant.id, closed[0], closure["from"], closure["to"],
+                                    tuple(seats), unused, revision)
 
 
 def _receipts(reader: FieldReader, data: dict, user_ids: set[str]) -> dict[Scope, Receipt]:

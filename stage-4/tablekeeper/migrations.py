@@ -60,9 +60,9 @@ def _schema_2_to_3(state: dict) -> dict:
 
 
 def _schema_3_to_4(state: dict) -> dict:
-    """Stage 4 counts each restaurant's changes (Q5, Q24): an earlier stage's restaurant
-    stands at revision 0, as after a reset."""
-    return {**state, "schema": 4,
+    """Stage 4 counts each restaurant's changes and plans seatings (Q5, Q24): an earlier
+    stage's restaurant stands at revision 0, as after a reset, and there are no plans."""
+    return {**state, "schema": 4, "plans": [],
             "restaurants": _each(state, "restaurants", lambda record: _extended(record, revision=0))}
 
 

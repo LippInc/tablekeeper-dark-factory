@@ -9,8 +9,7 @@ from __future__ import annotations
 from datetime import date
 
 from . import timeutil
-from .domain import Policy, Restaurant, User, find_restaurant, published_policy
-from .errors import ApiError
+from .domain import Policy, Restaurant, User, find_restaurant, managed_restaurant, published_policy
 from .fields import FieldReader, at
 from .records import read_opening_hours
 from .store import State
@@ -39,9 +38,7 @@ def listed(state: State, restaurant_id: str) -> dict:
 def publish(state: State, user: User, restaurant_id: str, body: dict) -> dict:
     """Publish a complete policy as the restaurant's next version (P2 order after the keyed
     write's own checks: 404 restaurant, 403 not a manager, 422 any policy field)."""
-    restaurant = find_restaurant(state, restaurant_id)
-    if user.id not in restaurant.manager_user_ids:
-        raise ApiError(403, "forbidden", "only the restaurant's managers may publish policies")
+    restaurant = managed_restaurant(state, user, restaurant_id)
     reader = FieldReader()
     policy = read_policy(reader, body, "", restaurant, version=len(state.policies.get(restaurant.id, [])) + 1)
     reader.raise_as_invalid()

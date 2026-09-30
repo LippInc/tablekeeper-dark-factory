@@ -268,6 +268,14 @@ def find_restaurant(state: State, restaurant_id: str) -> Restaurant:
     return restaurant
 
 
+def managed_restaurant(state: State, user: User, restaurant_id: str) -> Restaurant:
+    """A restaurant the caller manages: 404 when there is none, 403 when not a manager."""
+    restaurant = find_restaurant(state, restaurant_id)
+    if user.id not in restaurant.manager_user_ids:
+        raise ApiError(403, "forbidden", "only the restaurant's managers may do that")
+    return restaurant
+
+
 def own_reservation(state: State, user: User | None, reference: str) -> Reservation:
     """The caller's reservation; someone else's is as unknown as a missing one (§8), and so
     is any reservation to a caller who is not signed in."""

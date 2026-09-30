@@ -11,8 +11,8 @@ from starlette.requests import Request
 from starlette.responses import JSONResponse, Response
 from starlette.routing import Route
 
-from . import (auth, booking, domain, fixture, history, idempotency, policies, schedule, series,
-               snapshot, web)
+from . import (auth, booking, domain, fixture, history, idempotency, policies, replans, schedule,
+               series, snapshot, web)
 from .domain import User
 from .errors import ApiError, malformed
 from .fields import FieldReader
@@ -167,6 +167,12 @@ async def publish_policy(request: Request) -> Response:
         state, user, restaurant_id, body))
 
 
+async def preview_replan(request: Request) -> Response:
+    restaurant_id = request.path_params["restaurant_id"]
+    return await _keyed_write(request, lambda state, user, body: replans.preview(
+        state, user, restaurant_id, body))
+
+
 async def get_availability(request: Request) -> Response:
     reader = FieldReader()
     restaurant_id = reader.identifier_param(request.query_params, "restaurant_id")
@@ -277,6 +283,7 @@ ROUTES = [
     Route("/restaurants/{restaurant_id}", get_restaurant, methods=["GET"]),
     Route("/restaurants/{restaurant_id}/policies", list_policies, methods=["GET"]),
     Route("/restaurants/{restaurant_id}/policies", publish_policy, methods=["POST"]),
+    Route("/restaurants/{restaurant_id}/replans", preview_replan, methods=["POST"]),
     Route("/availability", get_availability, methods=["GET"]),
     Route("/reservations", list_reservations, methods=["GET"]),
     Route("/reservations", create_reservation, methods=["POST"]),
