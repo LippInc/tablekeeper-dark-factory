@@ -11,7 +11,7 @@ from starlette.requests import Request
 from starlette.responses import JSONResponse, Response
 from starlette.routing import Route
 
-from . import auth, booking, domain, fixture, idempotency, policies, schedule, snapshot, web
+from . import auth, booking, domain, fixture, history, idempotency, policies, schedule, snapshot, web
 from .domain import User
 from .errors import ApiError, malformed
 from .fields import FieldReader
@@ -202,12 +202,21 @@ async def get_reservation(request: Request) -> Response:
         return JsonResponse(domain.show(state, reservation))
 
 
-async def get_decision(request: Request) -> Response:
-    """Owner only; anyone else, signed in or not, gets the same 404 (H2)."""
+async def _owner_only_view(request: Request, render: Callable[[State, domain.Reservation], dict]) -> Response:
+    """A reservation's private view: its owner only; anyone else, signed in or not, gets the
+    same 404 (H2, R311, R342)."""
     async with _store(request).transaction() as state:
         user = auth.optional_user(state, request.headers.get("authorization"))
         reservation = domain.own_reservation(state, user, request.path_params["reference"])
-        return JsonResponse(domain.decision(reservation))
+        return JsonResponse(render(state, reservation))
+
+
+async def get_decision(request: Request) -> Response:
+    return await _owner_only_view(request, lambda state, reservation: domain.decision(reservation))
+
+
+async def get_history(request: Request) -> Response:
+    return await _owner_only_view(request, history.view)
 
 
 async def amend_reservation(request: Request) -> Response:
@@ -262,6 +271,7 @@ ROUTES = [
     Route("/reservations/{reference}", amend_reservation, methods=["PATCH"]),
     Route("/reservations/{reference}/cancel", cancel_reservation, methods=["POST"]),
     Route("/reservations/{reference}/decision", get_decision, methods=["GET"]),
+    Route("/reservations/{reference}/history", get_history, methods=["GET"]),
     Route("/reservation-moves", move_reservations, methods=["POST"]),
 ]
 

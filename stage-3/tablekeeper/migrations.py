@@ -40,14 +40,23 @@ def _schema_1_to_2(state: dict) -> dict:
 
 
 def _schema_2_to_3(state: dict) -> dict:
-    """Stage 3 adds dated policies and revisions (H6): a restaurant has managers and
-    published policies (none before), and every reservation stands at revision 1 under
-    policy 0, the exported restaurant's own rules, which it was booked under."""
+    """Stage 3 adds dated policies, revisions and history (H6, P4): a restaurant has managers
+    and published policies (none before), and every reservation stands at revision 1 under
+    policy 0, the exported restaurant's own rules, which it was booked under, with one
+    `created` entry at its creation holding its fields as they are."""
+    def reservation(record: Any) -> Any:
+        if not isinstance(record, dict):
+            return record
+        created = {"seq": 1, "at": record.get("created_at"), "event": "created",
+                   "changes": [{"field": name, "from": None, "to": record.get(name)}
+                               for name in ("table_ids", "starts_at", "party_size")],
+                   "revision": 1, "policy_version": 0}
+        return {**record, "revision": 1, "policy_version": 0, "history": [created]}
+
     return {**state, "schema": 3,
             "restaurants": _each(state, "restaurants", lambda record: _extended(
                 record, manager_user_ids=[], policies=[])),
-            "reservations": _each(state, "reservations", lambda record: _extended(
-                record, revision=1, policy_version=0))}
+            "reservations": _each(state, "reservations", reservation)}
 
 
 MIGRATIONS = {1: _schema_1_to_2, 2: _schema_2_to_3}

@@ -8,10 +8,12 @@ earlier schema is migrated to the current one before it is restored (`migrations
 """
 from __future__ import annotations
 
+from datetime import datetime
 from typing import Any
 
 from . import timeutil
 from .auth import is_hash_record
+from .history import EVENTS, FIELDS, Change, Entry
 from .domain import Policy, Reservation, Restaurant, User, published_policy, restaurant_detail
 from .errors import invalid
 from .fields import FieldReader, at
@@ -33,7 +35,7 @@ def export(state: State) -> dict:
                    "password_hash": u.password_hash} for u in state.users.values()],
         "tokens": dict(state.tokens),
         "restaurants": [_restaurant_record(state, r) for r in state.restaurants.values()],
-        "reservations": [_reservation_record(r) for r in state.reservations.values()],
+        "reservations": [_reservation_record(state, r) for r in state.reservations.values()],
         "receipts": [{"user_id": user_id, "method": method, "path": path, "key": key,
                       "request": receipt.request, "response": receipt.response}
                      for (user_id, method, path, key), receipt in state.receipts.items()],
@@ -46,14 +48,27 @@ def _restaurant_record(state: State, restaurant: Restaurant) -> dict:
             "policies": [published_policy(p) for p in state.policies.get(restaurant.id, [])]}
 
 
-def _reservation_record(reservation: Reservation) -> dict:
-    """A reservation with its revision and the version of the policy it was accepted under."""
+def _reservation_record(state: State, reservation: Reservation) -> dict:
+    """A reservation with its revision, the version of the policy it was accepted under and
+    its history, each entry with the version of the terms it recorded."""
     return {"id": reservation.id, "reference": reservation.reference,
             "user_id": reservation.user_id, "restaurant_id": reservation.restaurant_id,
             "table_ids": list(reservation.table_ids), "party_size": reservation.party_size,
             "starts_at": reservation.starts_at.isoformat(), "status": reservation.status,
             "created_at": reservation.created_at.isoformat(), "revision": reservation.revision,
-            "policy_version": reservation.terms.version}
+            "policy_version": reservation.terms.version,
+            "history": [{"seq": entry.seq, "at": entry.at.isoformat(), "event": entry.event,
+                         "changes": [{"field": change.field, "from": _value(change.before),
+                                      "to": _value(change.after)} for change in entry.changes],
+                         "revision": entry.revision, "policy_version": entry.terms.version}
+                        for entry in state.history[reservation.reference]]}
+
+
+def _value(value: object) -> object:
+    """A recorded field value as JSON: a table set as a list, a start as a timestamp."""
+    if isinstance(value, tuple):
+        return list(value)
+    return value.isoformat() if isinstance(value, datetime) else value
 
 
 def restore(body: Any) -> State:
@@ -133,9 +148,56 @@ def _reservations(reader: FieldReader, records: Records, data: dict,
         if version >= len(policies):
             reader.reject(at(path, "policy_version"), "is not a policy of its restaurant")
             continue
-        reservations.append(booking.reservation(starts_at, created_at, revision=revision,
-                                                terms=policies[version]))
+        entries = _history(reader, item, path, policies)
+        if entries:
+            reservations.append(booking.reservation(starts_at, created_at, revision=revision,
+                                                    terms=policies[version]))
+            state.history[booking.reference] = entries
     return reservations
+
+
+def _history(reader: FieldReader, item: dict, path: str, policies: list[Policy]) -> list[Entry]:
+    """A reservation's history, numbered 1, 2, ...; it records at least the creation."""
+    entries = []
+    listed = reader.objects(item, "history", path)
+    if not listed:
+        reader.reject(at(path, "history"), "must record at least the creation")
+    for index, (where, record) in enumerate(listed, start=1):
+        seq = reader.integer(record, "seq", where, minimum=index, maximum=index)
+        when = reader.parsed(record, "at", where, timeutil.parse_instant, "must be a timestamp with an offset")
+        event = reader.read(record, "event", "string", where)
+        revision = reader.integer(record, "revision", where, minimum=1)
+        version = reader.integer(record, "policy_version", where, minimum=0, maximum=len(policies) - 1)
+        changes = [_change(reader, change, place) for place, change in reader.objects(record, "changes", where)]
+        if event is not None and event not in EVENTS:
+            reader.reject(at(where, "event"), f"must be one of {', '.join(EVENTS)}")
+        elif None not in (seq, when, event, revision, version, *changes):
+            entries.append(Entry(seq=seq, at=when, event=event, changes=tuple(changes),
+                                 revision=revision, terms=policies[version]))
+    return entries
+
+
+def _change(reader: FieldReader, record: dict, where: str) -> Change | None:
+    """One recorded change: a table set, a start or a party size, before (None at creation)
+    and after."""
+    name = reader.read(record, "field", "string", where)
+    if name not in FIELDS:
+        reader.reject(at(where, "field"), f"must be one of {', '.join(FIELDS)}")
+        return None
+    before, after = (_recorded(record.get(side), name) for side in ("from", "to"))
+    if after is None or (before is None and record.get("from") is not None):
+        reader.reject(where, "must record a value after the change, and a valid one before")
+        return None
+    return Change(name, before, after)
+
+
+def _recorded(value: Any, name: str) -> Any:
+    """A recorded value of field `name`, or None when absent, null or invalid."""
+    if name == "table_ids":
+        return tuple(value) if isinstance(value, list) and value and all(isinstance(v, str) for v in value) else None
+    if name == "starts_at":
+        return timeutil.parse_instant(value) if isinstance(value, str) else None
+    return value if type(value) is int and value >= 1 else None
 
 
 def _receipts(reader: FieldReader, data: dict, user_ids: set[str]) -> dict[Scope, Receipt]:

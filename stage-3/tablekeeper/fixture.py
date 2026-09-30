@@ -10,7 +10,7 @@ from __future__ import annotations
 import asyncio
 from dataclasses import dataclass
 
-from . import timeutil
+from . import history, timeutil
 from .auth import hash_password
 from .domain import Reservation, Restaurant, User, read_local
 from .fields import FieldReader, at
@@ -57,8 +57,9 @@ async def seed(fixture: Fixture) -> State:
     """A State holding exactly the fixture; seeded passwords are hashed here."""
     hashes = await asyncio.gather(*(hash_password(password) for _, password in fixture.accounts))
     state = State(restaurants=fixture.restaurants)
-    for reservation in fixture.reservations:
+    for reservation in fixture.reservations:  # each created at the reset, under policy 0 (P4)
         state.put_reservation(reservation)
+        history.record(state, None, reservation, reservation.created_at)
     for (account, _), password_hash in zip(fixture.accounts, hashes):
         state.add_user(User(id=account.id, email=account.email,
                             display_name=account.display_name, password_hash=password_hash))

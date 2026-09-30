@@ -13,7 +13,7 @@ import string
 from dataclasses import dataclass, replace
 from datetime import datetime
 
-from . import schedule, timeutil
+from . import history, schedule, timeutil
 from .domain import (CANCELLED, CONFIRMED, Policy, Reservation, Restaurant, User,
                      find_restaurant, overlaps, own_reservation, read_local, read_party_size,
                      read_table_ids, select_tables, show)
@@ -122,7 +122,8 @@ def apply(state: State, bookings: list[Reservation]) -> list[Reservation]:
     that every other confirmed version is free, on each of its tables and for its own
     duration, of every other confirmed booking there: those listed, and those not listed,
     whose previous occupancy no longer counts. If any overlaps, 409 `table_unavailable`.
-    Phase two alone changes the state: each changed booking is stored one revision further.
+    Phase two alone changes the state: each changed booking is stored one revision further
+    and its history gains one entry, all of the operation's entries at one time.
     """
     changed = [booking for booking in bookings if state.reservations.get(booking.reference) != booking]
     confirmed = [booking for booking in changed if booking.status == CONFIRMED]
@@ -136,10 +137,12 @@ def apply(state: State, bookings: list[Reservation]) -> list[Reservation]:
             if any(overlaps(booking, rival) for rival in rivals):
                 raise ApiError(409, "table_unavailable", "a table is taken at that time")
     stored = {}
+    at = timeutil.now()
     for booking in changed:
         previous = state.reservations.get(booking.reference)
         version = booking if previous is None else replace(booking, revision=previous.revision + 1)
         state.put_reservation(version)
+        history.record(state, previous, version, at)
         stored[version.reference] = version
     return [stored.get(booking.reference, booking) for booking in bookings]
 

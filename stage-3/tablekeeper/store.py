@@ -7,6 +7,7 @@ from contextlib import asynccontextmanager
 from dataclasses import dataclass, field
 
 from .domain import CONFIRMED, Policy, Reservation, Restaurant, User
+from .history import Entry
 
 # An idempotency scope: (user id, method, path, key) (§7).
 Scope = tuple[str, str, str, str]
@@ -40,6 +41,7 @@ class State:
     # A booking of a pair is listed under both of its tables.
     table_bookings: dict[tuple[str, str], dict[str, Reservation]] = field(default_factory=dict)
     receipts: dict[Scope, Receipt] = field(default_factory=dict)
+    history: dict[str, list[Entry]] = field(default_factory=dict)  # per reference, in seq order
 
     def add_user(self, user: User) -> None:
         self.users[user.id] = user
