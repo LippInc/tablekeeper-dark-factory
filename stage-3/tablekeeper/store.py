@@ -6,7 +6,7 @@ from collections.abc import AsyncIterator, Callable, Container, Iterable
 from contextlib import asynccontextmanager
 from dataclasses import dataclass, field
 
-from .domain import CONFIRMED, Reservation, Restaurant, User
+from .domain import CONFIRMED, Policy, Reservation, Restaurant, User
 
 # An idempotency scope: (user id, method, path, key) (§7).
 Scope = tuple[str, str, str, str]
@@ -34,6 +34,7 @@ class State:
     user_ids_by_email: dict[str, str] = field(default_factory=dict)
     tokens: dict[str, str] = field(default_factory=dict)            # token -> user id
     restaurants: dict[str, Restaurant] = field(default_factory=dict)  # fixture order
+    policies: dict[str, list[Policy]] = field(default_factory=dict)  # published, per restaurant
     reservations: dict[str, Reservation] = field(default_factory=dict)  # by reference, creation order
     # Confirmed bookings per (restaurant id, table id), by reference: the occupancy index.
     # A booking of a pair is listed under both of its tables.

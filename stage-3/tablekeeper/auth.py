@@ -139,10 +139,17 @@ async def log_in(store: Store, body: dict) -> dict:
         return _start_session(state, user)
 
 
-def authenticate(state: State, authorization: str | None) -> User:
-    """The user a `Bearer <token>` header belongs to."""
+def optional_user(state: State, authorization: str | None) -> User | None:
+    """The user a `Bearer <token>` header belongs to; None for a missing, malformed or
+    unknown token."""
     scheme, _, token = (authorization or "").partition(" ")
     user_id = state.tokens.get(token.strip()) if scheme.lower() == "bearer" else None
-    if user_id is None:
+    return None if user_id is None else state.users[user_id]
+
+
+def authenticate(state: State, authorization: str | None) -> User:
+    """The user a `Bearer <token>` header belongs to."""
+    user = optional_user(state, authorization)
+    if user is None:
         raise unauthenticated("a valid bearer token is required")
-    return state.users[user_id]
+    return user

@@ -1,4 +1,4 @@
-# Running Tablekeeper (stage 2)
+# Running Tablekeeper (stage 3)
 
 From this folder, build the image and start the service on port 8080:
 

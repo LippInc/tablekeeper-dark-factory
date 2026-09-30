@@ -11,7 +11,7 @@ from starlette.requests import Request
 from starlette.responses import JSONResponse, Response
 from starlette.routing import Route
 
-from . import auth, booking, domain, fixture, idempotency, schedule, snapshot, web
+from . import auth, booking, domain, fixture, idempotency, policies, schedule, snapshot, web
 from .domain import User
 from .errors import ApiError, malformed
 from .fields import FieldReader
@@ -127,6 +127,17 @@ async def get_restaurant(request: Request) -> Response:
         return JsonResponse(domain.restaurant_detail(restaurant))
 
 
+async def list_policies(request: Request) -> Response:
+    async with _store(request).transaction() as state:
+        return JsonResponse(policies.listed(state, request.path_params["restaurant_id"]))
+
+
+async def publish_policy(request: Request) -> Response:
+    restaurant_id = request.path_params["restaurant_id"]
+    return await _keyed_write(request, lambda state, user, body: policies.publish(
+        state, user, restaurant_id, body))
+
+
 async def get_availability(request: Request) -> Response:
     reader = FieldReader()
     restaurant_id = reader.identifier_param(request.query_params, "restaurant_id")
@@ -159,6 +170,14 @@ async def get_reservation(request: Request) -> Response:
         user = _caller(request, state)
         reservation = domain.own_reservation(state, user, request.path_params["reference"])
         return JsonResponse(domain.show(state, reservation))
+
+
+async def get_decision(request: Request) -> Response:
+    """Owner only; anyone else, signed in or not, gets the same 404 (H2)."""
+    async with _store(request).transaction() as state:
+        user = auth.optional_user(state, request.headers.get("authorization"))
+        reservation = domain.own_reservation(state, user, request.path_params["reference"])
+        return JsonResponse(domain.decision(reservation))
 
 
 async def amend_reservation(request: Request) -> Response:
@@ -204,12 +223,15 @@ ROUTES = [
     Route("/auth/login", login, methods=["POST"]),
     Route("/restaurants", list_restaurants, methods=["GET"]),
     Route("/restaurants/{restaurant_id}", get_restaurant, methods=["GET"]),
+    Route("/restaurants/{restaurant_id}/policies", list_policies, methods=["GET"]),
+    Route("/restaurants/{restaurant_id}/policies", publish_policy, methods=["POST"]),
     Route("/availability", get_availability, methods=["GET"]),
     Route("/reservations", list_reservations, methods=["GET"]),
     Route("/reservations", create_reservation, methods=["POST"]),
     Route("/reservations/{reference}", get_reservation, methods=["GET"]),
     Route("/reservations/{reference}", amend_reservation, methods=["PATCH"]),
     Route("/reservations/{reference}/cancel", cancel_reservation, methods=["POST"]),
+    Route("/reservations/{reference}/decision", get_decision, methods=["GET"]),
     Route("/reservation-moves", move_reservations, methods=["POST"]),
 ]
 

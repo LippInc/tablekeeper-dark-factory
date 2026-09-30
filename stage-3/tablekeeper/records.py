@@ -10,12 +10,12 @@ from __future__ import annotations
 import re
 from dataclasses import dataclass
 from datetime import datetime
-from itertools import pairwise
+from itertools import accumulate, pairwise
 
 from . import timeutil
 from .auth import read_identity
-from .domain import (CANCELLED, CONFIRMED, WEEKDAYS, OpeningHours, Reservation, Restaurant,
-                     Table, overlaps, read_party_size, read_table_ids, select_tables)
+from .domain import (CANCELLED, CONFIRMED, WEEKDAYS, OpeningHours, Policy, Reservation,
+                     Restaurant, Table, read_party_size, read_table_ids, select_tables)
 from .errors import ApiError
 from .fields import FieldReader, at
 from .store import email_key
@@ -43,10 +43,34 @@ class Booking:
     status: str
 
     def reservation(self, starts_at: datetime, created_at: datetime) -> Reservation:
+        """The booking as a reservation at revision 1 under policy 0, as every stored booking
+        starts out (seeded bookings, and bookings of an earlier stage's export)."""
         return Reservation(id=self.id, reference=self.reference, user_id=self.user_id,
                            restaurant_id=self.restaurant.id, table_ids=self.table_ids,
                            party_size=self.party_size, starts_at=starts_at, status=self.status,
-                           created_at=created_at)
+                           created_at=created_at, revision=1, terms=self.restaurant.initial)
+
+
+def read_opening_hours(reader: FieldReader, obj: dict, path: str) -> tuple[OpeningHours, ...]:
+    """Opening hours in the order given. A weekday may have several entries, which must not
+    overlap one another; entries that only touch are allowed."""
+    entries: list[OpeningHours] = []
+    for where, item in reader.objects(obj, "opening_hours", path):
+        weekday = reader.read(item, "weekday", "string", where)
+        opens, closes = (reader.parsed(item, name, where, timeutil.parse_hhmm,
+                                       "must be a 24-hour HH:MM time")
+                         for name in ("opens", "closes"))
+        if weekday is not None and weekday not in WEEKDAYS:
+            reader.reject(at(where, "weekday"), f"must be one of {' '.join(WEEKDAYS)}")
+        elif opens is not None and closes is not None and closes <= opens:
+            reader.reject(at(where, "closes"), "must be later than opens on the same day")
+        elif None not in (weekday, opens, closes):
+            entries.append(OpeningHours(weekday, opens, closes))
+    for weekday in WEEKDAYS:
+        day = sorted((e for e in entries if e.weekday == weekday), key=lambda e: e.opens)
+        if any(later.opens < earlier.closes for earlier, later in pairwise(day)):
+            reader.reject(at(path, "opening_hours"), f"has overlapping entries on {weekday}")
+    return tuple(entries)
 
 
 class Records:
@@ -85,42 +109,26 @@ class Records:
                                   minimum=1, maximum=timeutil.MAX_MINUTES)
         cutoff = reader.integer(item, "cancellation_cutoff_minutes", path,
                                 minimum=0, maximum=timeutil.MAX_MINUTES)
-        hours = self._opening_hours(item, path)
-        tables = self._tables(item, path)
+        hours = read_opening_hours(reader, item, path)
+        tables, capacities = self._tables(item, path)
         combinable = self._combinable(item, path, {table.id for table in tables})
+        managers = self._managers(item, path)
         if restaurant_id in self.restaurants:
             reader.reject(at(path, "id"), "is not unique")
         elif None not in (restaurant_id, name, timezone, slot, duration, cutoff):
+            initial = Policy(version=0, effective_from=None, slot_minutes=slot,
+                             reservation_duration_minutes=duration,
+                             cancellation_cutoff_minutes=cutoff, opening_hours=hours,
+                             capacities=capacities)
             self.restaurants[restaurant_id] = Restaurant(
-                id=restaurant_id, name=name, timezone=timezone, slot_minutes=slot,
-                reservation_duration_minutes=duration, cancellation_cutoff_minutes=cutoff,
-                opening_hours=hours, tables=tables, combinable=combinable)
+                id=restaurant_id, name=name, timezone=timezone, initial=initial, tables=tables,
+                combinable=combinable, manager_user_ids=managers)
 
-    def _opening_hours(self, restaurant: dict, path: str) -> tuple[OpeningHours, ...]:
-        """Opening hours in fixture order. A weekday may have several entries, which must
-        not overlap one another; entries that only touch are allowed."""
-        reader = self.reader
-        entries: list[OpeningHours] = []
-        for where, item in reader.objects(restaurant, "opening_hours", path):
-            weekday = reader.read(item, "weekday", "string", where)
-            opens, closes = (reader.parsed(item, name, where, timeutil.parse_hhmm,
-                                           "must be a 24-hour HH:MM time")
-                             for name in ("opens", "closes"))
-            if weekday is not None and weekday not in WEEKDAYS:
-                reader.reject(at(where, "weekday"), f"must be one of {' '.join(WEEKDAYS)}")
-            elif opens is not None and closes is not None and closes <= opens:
-                reader.reject(at(where, "closes"), "must be later than opens on the same day")
-            elif None not in (weekday, opens, closes):
-                entries.append(OpeningHours(weekday, opens, closes))
-        for weekday in WEEKDAYS:
-            day = sorted((e for e in entries if e.weekday == weekday), key=lambda e: e.opens)
-            if any(later.opens < earlier.closes for earlier, later in pairwise(day)):
-                reader.reject(at(path, "opening_hours"), f"has overlapping entries on {weekday}")
-        return tuple(entries)
-
-    def _tables(self, restaurant: dict, path: str) -> tuple[Table, ...]:
+    def _tables(self, restaurant: dict, path: str) -> tuple[tuple[Table, ...], dict[str, int]]:
+        """The tables in fixture order, and the capacity of each."""
         reader = self.reader
         tables: dict[str, Table] = {}
+        capacities: dict[str, int] = {}
         for where, item in reader.objects(restaurant, "tables", path):
             table_id = reader.identifier(item, "id", where)
             label = reader.read(item, "label", "string", where)
@@ -128,8 +136,22 @@ class Records:
             if table_id in tables:
                 reader.reject(at(where, "id"), "is not unique within its restaurant")
             elif None not in (table_id, label, capacity):
-                tables[table_id] = Table(table_id, label, capacity)
-        return tuple(tables.values())
+                tables[table_id] = Table(table_id, label)
+                capacities[table_id] = capacity
+        return tuple(tables.values()), capacities
+
+    def _managers(self, restaurant: dict, path: str) -> tuple[str, ...]:
+        """The users who may publish the restaurant's policies (P6): known user ids, each
+        once. Absent means none."""
+        reader = self.reader
+        where = at(path, "manager_user_ids")
+        listed = reader.read(restaurant, "manager_user_ids", "array", path, required=False) or []
+        managers = reader.strings(listed, where) or []
+        if not set(managers) <= self.user_ids:
+            reader.reject(where, "must name known users")
+        elif len(set(managers)) != len(managers):
+            reader.reject(where, "must not name a user twice")
+        return tuple(managers)
 
     def _combinable(self, restaurant: dict, path: str,
                     table_ids: set[str]) -> tuple[tuple[str, str], ...]:
@@ -199,7 +221,8 @@ class Records:
                     by_table.setdefault(key, []).append(reservation)
         for (restaurant_id, table_id), booked in by_table.items():
             booked.sort(key=lambda r: r.starts_at)
-            duration = self.restaurants[restaurant_id].duration
-            if any(overlaps(a.starts_at, b.starts_at, duration) for a, b in pairwise(booked)):
+            # Each booking lasts its own accepted duration, so any earlier one may still run.
+            latest_ends = accumulate((r.ends_at for r in booked), max)
+            if any(later.starts_at < end for later, end in zip(booked[1:], latest_ends)):
                 self.reader.reject("reservations",
                                    f"overlap on table {table_id!r} of {restaurant_id!r}")

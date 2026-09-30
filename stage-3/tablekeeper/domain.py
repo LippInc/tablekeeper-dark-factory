@@ -1,8 +1,10 @@
-"""Restaurants, tables, diners and reservations (§4, §8), and how the API shows them."""
+"""Restaurants, tables, diners, booking policies and reservations (§4, §8), and how the API
+shows them."""
 from __future__ import annotations
 
+from collections.abc import Iterable, Mapping
 from dataclasses import dataclass
-from datetime import datetime, time, timedelta
+from datetime import date, datetime, time, timedelta
 from typing import TYPE_CHECKING
 from zoneinfo import ZoneInfo
 
@@ -28,9 +30,9 @@ class User:
 
 @dataclass(frozen=True)
 class Table:
+    """A table's identity. How many it seats is a rule of the policy in force (H1)."""
     id: str
     label: str
-    capacity: int
 
 
 @dataclass(frozen=True)
@@ -41,16 +43,40 @@ class OpeningHours:
 
 
 @dataclass(frozen=True)
-class Restaurant:
-    id: str
-    name: str
-    timezone: str
+class Policy:
+    """A restaurant's booking rules from a local date on (H1). Version 0 is the fixture's own
+    rules, in force before any published policy, and has no effective date. A booking keeps
+    the policy it was accepted under as its terms."""
+    version: int
+    effective_from: date | None
     slot_minutes: int
     reservation_duration_minutes: int
     cancellation_cutoff_minutes: int
     opening_hours: tuple[OpeningHours, ...]
+    capacities: Mapping[str, int]  # per table id, in fixture order; never changed
+
+    @property
+    def duration(self) -> timedelta:
+        return timedelta(minutes=self.reservation_duration_minutes)
+
+    @property
+    def cutoff(self) -> timedelta:
+        return timedelta(minutes=self.cancellation_cutoff_minutes)
+
+    def seats(self, tables: Iterable[Table]) -> int:
+        """How many `tables` seat together: the sum of their capacities."""
+        return sum(self.capacities[table.id] for table in tables)
+
+
+@dataclass(frozen=True)
+class Restaurant:
+    id: str
+    name: str
+    timezone: str
+    initial: Policy  # policy 0: the fixture's rules
     tables: tuple[Table, ...]
     combinable: tuple[tuple[str, str], ...]  # declared pairs of table ids, in declared order
+    manager_user_ids: tuple[str, ...]  # the users who may publish policies
 
     def table(self, table_id: str) -> Table | None:
         return next((table for table in self.tables if table.id == table_id), None)
@@ -64,10 +90,6 @@ class Restaurant:
     def zone(self) -> ZoneInfo:
         return ZoneInfo(self.timezone)
 
-    @property
-    def duration(self) -> timedelta:
-        return timedelta(minutes=self.reservation_duration_minutes)
-
 
 @dataclass(frozen=True)
 class Reservation:
@@ -80,22 +102,29 @@ class Reservation:
     starts_at: datetime  # UTC
     status: str
     created_at: datetime  # UTC
+    revision: int  # 1 at creation, one more for each real change or cancellation
+    terms: Policy  # the policy it was accepted under: its duration and cutoff
+
+    @property
+    def ends_at(self) -> datetime:
+        return self.starts_at + self.terms.duration
 
 
-def clash_window(offset: timedelta, duration: timedelta) -> tuple[timedelta, timedelta]:
-    """The open interval of start offsets whose booking shares time with one starting at
-    `offset`, all offsets measured from one common instant.
+def clash_window(offset: timedelta, duration: timedelta,
+                 other: timedelta) -> tuple[timedelta, timedelta]:
+    """The open interval of start offsets at which a booking lasting `other` shares time with
+    one from `offset` lasting `duration`, all offsets measured from one common instant.
 
-    Each booking occupies the half-open [start, start + duration), and every booking at a
-    restaurant lasts the same `duration`, so two share time exactly when their starts are
-    less than `duration` apart. Offsets, unlike instants, never leave a datetime's range.
+    Each booking occupies the half-open [start, start + its own duration), so the other
+    booking must start before this one ends and end after it starts. Offsets, unlike
+    instants, never leave a datetime's range.
     """
-    return offset - duration, offset + duration
+    return offset - other, offset + duration
 
 
-def overlaps(a: datetime, b: datetime, duration: timedelta) -> bool:
-    """Whether bookings on one table starting at instants `a` and `b` share any time."""
-    low, high = clash_window(b - a, duration)
+def overlaps(a: Reservation, b: Reservation) -> bool:
+    """Whether bookings `a` and `b`, each for its own accepted duration, share any time."""
+    low, high = clash_window(b.starts_at - a.starts_at, b.terms.duration, a.terms.duration)
     return low < timedelta(0) < high
 
 
@@ -165,18 +194,38 @@ def restaurant_summary(restaurant: Restaurant) -> dict:
     return {"id": restaurant.id, "name": restaurant.name, "timezone": restaurant.timezone}
 
 
-def restaurant_detail(restaurant: Restaurant) -> dict:
-    """The restaurant in the fixture's shape."""
+def _rules(policy: Policy) -> dict:
+    """A policy's rules in the fixture's field names."""
     return {
-        **restaurant_summary(restaurant),
-        "slot_minutes": restaurant.slot_minutes,
-        "reservation_duration_minutes": restaurant.reservation_duration_minutes,
-        "cancellation_cutoff_minutes": restaurant.cancellation_cutoff_minutes,
+        "slot_minutes": policy.slot_minutes,
+        "reservation_duration_minutes": policy.reservation_duration_minutes,
+        "cancellation_cutoff_minutes": policy.cancellation_cutoff_minutes,
         "opening_hours": [
             {"weekday": hours.weekday, "opens": timeutil.hhmm(hours.opens),
              "closes": timeutil.hhmm(hours.closes)}
-            for hours in restaurant.opening_hours],
-        "tables": [{"id": table.id, "label": table.label, "capacity": table.capacity}
+            for hours in policy.opening_hours],
+    }
+
+
+def accepted_terms(policy: Policy) -> dict:
+    """The snapshot of a policy a booking carries: everything but its effective date."""
+    return {"policy_version": policy.version, **_rules(policy),
+            "capacities": dict(policy.capacities)}
+
+
+def published_policy(policy: Policy) -> dict:
+    """A published policy as it was supplied, with its version."""
+    return {"effective_from": policy.effective_from.isoformat(), **_rules(policy),
+            "capacities": dict(policy.capacities), "policy_version": policy.version}
+
+
+def restaurant_detail(restaurant: Restaurant) -> dict:
+    """The restaurant in the fixture's shape: its original configuration, policy 0."""
+    initial = restaurant.initial
+    return {
+        **restaurant_summary(restaurant),
+        **_rules(initial),
+        "tables": [{"id": table.id, "label": table.label, "capacity": initial.capacities[table.id]}
                    for table in restaurant.tables],
         "combinable": [list(pair) for pair in restaurant.combinable],
     }
@@ -184,9 +233,8 @@ def restaurant_detail(restaurant: Restaurant) -> dict:
 
 def show(state: State, reservation: Reservation) -> dict:
     """A reservation as every reservation endpoint returns it (§8): `table_ids` always,
-    and `table_id` too when the set has one member."""
-    restaurant = state.restaurants[reservation.restaurant_id]
-    zone = restaurant.zone
+    `table_id` too when the set has one member, and its revision and accepted terms."""
+    zone = state.restaurants[reservation.restaurant_id].zone
     single = {"table_id": reservation.table_ids[0]} if len(reservation.table_ids) == 1 else {}
     return {
         "reservation_id": reservation.id,
@@ -198,9 +246,17 @@ def show(state: State, reservation: Reservation) -> dict:
         "status": reservation.status,
         "starts_at_local": timeutil.local_text(reservation.starts_at, zone),
         "starts_at": timeutil.rfc3339(reservation.starts_at, zone),
-        "ends_at": timeutil.rfc3339(reservation.starts_at + restaurant.duration, zone),
+        "ends_at": timeutil.rfc3339(reservation.ends_at, zone),
         "created_at": timeutil.rfc3339(reservation.created_at),
+        "revision": reservation.revision,
+        "accepted_terms": accepted_terms(reservation.terms),
     }
+
+
+def decision(reservation: Reservation) -> dict:
+    """What a booking was accepted under: its current revision and terms."""
+    return {"reference": reservation.reference, "revision": reservation.revision,
+            "accepted_terms": accepted_terms(reservation.terms)}
 
 
 # ---- reads -----------------------------------------------------------------
@@ -212,10 +268,11 @@ def find_restaurant(state: State, restaurant_id: str) -> Restaurant:
     return restaurant
 
 
-def own_reservation(state: State, user: User, reference: str) -> Reservation:
-    """The caller's reservation; someone else's is as unknown as a missing one (§8)."""
+def own_reservation(state: State, user: User | None, reference: str) -> Reservation:
+    """The caller's reservation; someone else's is as unknown as a missing one (§8), and so
+    is any reservation to a caller who is not signed in."""
     reservation = state.reservations.get(reference)
-    if reservation is None or reservation.user_id != user.id:
+    if reservation is None or user is None or reservation.user_id != user.id:
         raise not_found(f"no reservation {reference!r}")
     return reservation
 
