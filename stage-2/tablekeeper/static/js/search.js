@@ -20,6 +20,19 @@ const SEARCH_PROBLEMS = {
   date: "Choose a date to search.",
   restaurant_id: "Choose a restaurant to search.",
 };
+const SEARCH_UNKNOWN_RESTAURANT = "This restaurant is not taking bookings any more. Choose another restaurant.";
+const SEARCH_REFUSED = "Check the restaurant, date and party size, then search again.";
+const SEARCH_UNANSWERED = "The restaurant did not answer. Nothing was booked. Search again in a moment.";
+
+// The sentence for a refused search, always in our own words (R218): the field at fault when
+// the service names one, otherwise what the kind of refusal means; never the service's message.
+function searchProblem({ status, data }) {
+  const message = data?.error?.message ?? "";
+  const field = Object.keys(SEARCH_PROBLEMS).find((name) => message.startsWith(`${name} `));
+  if (field) return SEARCH_PROBLEMS[field];
+  if (status === 404) return SEARCH_UNKNOWN_RESTAURANT;
+  return status < 500 ? SEARCH_REFUSED : SEARCH_UNANSWERED;
+}
 
 // A composed state of the results area (DESIGN.md 3.9): the restaurant, a heading with the
 // date in words, the quiet room drawing, one sentence and at most one action.
@@ -167,15 +180,14 @@ export async function renderSearch(main) {
       if (mine !== latest) return;  // a later search owns the results area now
       results.style.minHeight = "";
       if (availability.status !== 200) {
-        const problem = Object.keys(SEARCH_PROBLEMS).find((name) => availability.data.error.message.startsWith(`${name} `));
-        showFailure(search, problem ? SEARCH_PROBLEMS[problem] : availability.data.error.message);
+        showFailure(search, searchProblem(availability));
         return;
       }
       showAnswer(search, detail.data, availability.data.slots);
     } catch {
       if (mine !== latest) return;
       results.style.minHeight = "";
-      showFailure(search, "The restaurant did not answer. Nothing was booked. Search again in a moment.");
+      showFailure(search, SEARCH_UNANSWERED);
     }
   }
 

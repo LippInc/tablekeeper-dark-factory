@@ -55,7 +55,7 @@ function cancelRefusal(error, restaurant) {
       body: `Bookings can be cancelled until ${minutes ? `${duration(minutes)} before they start` : "they start"}.`,
     };
   }
-  return { title: "We could not cancel this booking", body: error.message };
+  return { title: "We could not cancel this booking", body: "Nothing was changed. Try again in a moment." };
 }
 
 // The found booking (`reservation-detail`); `show` replaces it with the service's next answer.
