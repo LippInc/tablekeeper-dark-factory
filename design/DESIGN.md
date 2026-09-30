@@ -127,6 +127,8 @@ The fixture holds only ids, a restaurant name and time zone, table labels and ca
 - **Times:** 24-hour `HH:MM` with a leading zero (**09:00**, **18:30**), exactly as in the slot grid, always the restaurant's local time.
 - **Party size:** in words from one to twelve ("for four"), digits above ("for 14").
 - **Line breaks:** "seats N" never splits: write it with a no-break space (U+00A0) between "seats" and the number, so a narrow name column breaks after the comma ("Medium table, / seats 4"). Every text block that can wrap (row and panel descriptions, ledes, notice titles and bodies, results-notice sentences) sets `text-wrap: pretty` so no line ends with a single orphaned word ("…for up / to six", not "…for up to / six").
+- **Dated policies (from stage 3):** a search reads every capacity from the policy the service selects for the searched date: "seats N", the size word, the seat dots, the "Too small for …" grouping, which pairs get a row, and the panel's "for up to …" and "seats … at most". A booking already made reads its own `accepted_terms`, even when a newer policy says otherwise. That covers the booked notice, the lookup detail and its drawing, and the cutoff sentence. Nothing announces a policy: the diner never sees the word "policy", a version number or an effective date, and the rows simply read as that date's room.
+- **Cutoff sentence:** stated per booking from its accepted cutoff, never as a rule for all bookings: "This booking can be cancelled until two hours before it starts." The duration is given in its largest whole unit, in words ("45 minutes", "two hours", "one day", "14 days"). A cutoff of 0 reads "until it starts".
 - **Never shown:** table ids (`t_1`), restaurant ids (`r_anker`), user or reservation ids, raw API codes, ISO timestamps. The booking **reference** is shown, because the diner needs it; it is written exactly as the service returns it, with no separators or spaces added (the hyphen in the reference picture is a placeholder).
 
 ---
@@ -319,7 +321,7 @@ Inline SVG, `aria-hidden="true"` (the name beside it carries the meaning). Built
   4. **`reservation-tables`**: the table or pair name, Cormorant 36/500 ("Tables 1 + 2").
   5. List: When "Wednesday 7 October, 18:30", Where "Zum Anker", Party "Four guests".
   6. Confirmed: **`reservation-cancel-button`**, secondary, 100 % wide, "Cancel booking" (busy "Cancelling…"), a single click with no confirm dialog. Cancelled: the button is absent and the sentence "Cancelled. The table is free for other guests." (14 `--tk-text-2`) takes its place.
-  7. **Cancel refused** (`reservation-error`): a refused notice directly under the cancel button: "It is too close to the booking to cancel online" / the server's reason in words.
+  7. **Cancel refused** (`reservation-error`): a refused notice directly under the cancel button. For the cutoff: "It is too close to the booking to cancel online" / the cutoff sentence (§2). For any other refusal: the reason in our own words.
 - **Signed out:** the neutral sign-in notice above the form (3.10).
 
 ---
