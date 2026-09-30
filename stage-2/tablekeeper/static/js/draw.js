@@ -20,7 +20,7 @@ function bodyWidth(capacity, u) {
 }
 
 // The drawing of one table, or of a pair side by side, from their capacities.
-function plan(capacities, u) {
+function plan(capacities, u, seam) {
   const radius = 0.22 * u;
   const stroke = u / 8;
   const bodyTop = 2 * radius + u / 4;
@@ -38,7 +38,7 @@ function plan(capacities, u) {
         seatRow(Math.min(Math.floor(capacity / 2), MOST_SEATS_PER_EDGE), x, w, bodyTop + u + u / 4 + radius, radius)));
     x += w;
   });
-  if (capacities.length === 2) {
+  if (seam && capacities.length === 2) {
     parts.push(svg("rect", {
       class: "seam", x: widths[0] - u / 8, y: bodyTop - u / 6, width: u / 4, height: u + u / 3,
     }));
@@ -46,10 +46,11 @@ function plan(capacities, u) {
   return { parts, width: width + stroke, height, left: -stroke / 2 };
 }
 
-// size: "small" (fitted into the 72 x 40 box of a table row), "large" (booking panel) or
-// "quiet" (the room drawing of the results notices).
-export function drawing(capacities, size) {
-  const { parts, width, height, left } = plan(capacities, UNITS[size]);
+// size: "small" (fitted into the 72 x 40 box of a table row), "large" (booking panel, lookup)
+// or "quiet" (the room drawing of the results notices). A cancelled booking's pair is drawn
+// without its seam.
+export function drawing(capacities, size, { seam = true } = {}) {
+  const { parts, width, height, left } = plan(capacities, UNITS[size], seam);
   const scale = size === "small" ? Math.min(1, SMALL_BOX.width / width, SMALL_BOX.height / height) : 1;
   return svg("svg", {
     class: `drawing drawing-${size}`, width: width * scale, height: height * scale,

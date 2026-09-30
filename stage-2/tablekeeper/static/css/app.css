@@ -417,7 +417,7 @@ a { color: inherit; }
 .notice-loading .loading-track { margin: var(--tk-s2) 0; }
 
 /* The booking reference: the one piece of data the diner copies, set large with even figures. */
-.confirmation-reference {
+.reference {
   margin: var(--tk-s1) 0;
   font-family: var(--tk-display);
   font-variant-numeric: lining-nums tabular-nums;
@@ -586,6 +586,27 @@ a { color: inherit; }
 }
 
 .lookup-form .button { width: 100%; }
+
+.lookup-detail {
+  margin-top: var(--tk-s6);
+  border-top: 3px solid var(--tk-booked);
+}
+
+.lookup-detail-cancelled { border-top-color: var(--tk-control); }
+
+.lookup-detail-cancelled .panel-drawing { color: var(--tk-quiet); }
+
+.status-line { margin-top: var(--tk-s2); color: var(--tk-text-2); font-size: 14px; }
+
+.status { margin-left: var(--tk-s2); font-size: 16px; font-weight: 600; }
+
+.status-confirmed { color: var(--tk-booked); }
+
+.status-cancelled { color: var(--tk-text-2); }
+
+.lookup-detail > .button { width: 100%; margin-top: var(--tk-s5); }
+
+.lookup-cancelled { margin-top: var(--tk-s5); }
 
 @media (min-width: 720px) {
   .lookup-form {

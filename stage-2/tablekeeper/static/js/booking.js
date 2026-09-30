@@ -14,6 +14,7 @@ import { call } from "./api.js";
 import { el } from "./dom.js";
 import { drawing, quietRoom } from "./draw.js";
 import { timeOf } from "./grid.js";
+import { dateOf, reservedTables } from "./reservation.js";
 import * as session from "./session.js";
 import { busy, button, field, idle, loadingTrack, notice, signInNotice } from "./ui.js";
 import {
@@ -79,14 +80,12 @@ function refusal({ tables, slot }, error) {
   return { title: `We could not book ${name} at ${timeOf(slot)}`, body: error.message };
 }
 
-// The confirmation, built only from the service's reservation. A stage-1 reservation names
-// its one table as `table_id` alone.
+// The confirmation, built only from the service's reservation.
 function confirmation({ restaurant }, reservation) {
-  const tables = (reservation.table_ids ?? [reservation.table_id])
-    .map((id) => restaurant.tables.find((table) => table.id === id));
-  const date = reservation.starts_at_local.slice(0, 10);
+  const tables = reservedTables(restaurant, reservation);
+  const date = dateOf(reservation);
   return notice({ tone: "booked", title: `Booked. See you on ${weekdayOf(date)}.`, testid: "confirmation" },
-    el("p", { class: "confirmation-reference", "data-testid": "confirmation-reference" }, reservation.reference),
+    el("p", { class: "reference", "data-testid": "confirmation-reference" }, reservation.reference),
     el("p", { class: "notice-body", "data-testid": "confirmation-details" },
       `${restaurant.name}, `,
       el("span", { class: "confirmation-tables", "data-testid": "confirmation-tables" }, seatingName(tables)),
