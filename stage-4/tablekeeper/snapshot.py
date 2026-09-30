@@ -15,7 +15,8 @@ from . import planner, timeutil
 from .auth import is_hash_record
 from .history import EVENTS, FIELDS, REASSIGNED, Change, Entry
 from .series import Occurrence, Series, add
-from .domain import Closure, Policy, Reservation, Restaurant, User, published_policy, restaurant_detail
+from .domain import (Closure, Policy, Reservation, Restaurant, User, overlaps, published_policy,
+                     restaurant_detail)
 from .errors import invalid
 from .fields import FieldReader, at
 from .idempotency import MAX_KEY_LENGTH, is_canonical_request
@@ -298,7 +299,8 @@ def _plan(reader: FieldReader, item: dict, path: str, state: State) -> None:
 
 def _closures(reader: FieldReader, item: dict, path: str, restaurant: Restaurant, state: State) -> None:
     """A restaurant's closures, each the one recorded by applying one of its stored plans:
-    that plan's table and interval."""
+    that plan's table and interval, held by no confirmed booking (the one occupancy rule,
+    as the import holds it for bookings among themselves, Q28)."""
     for where, record in reader.objects(item, "closures", path):
         closed = read_closure(reader, record, where)
         plan_id = reader.identifier(record, "plan_id", where)
@@ -312,6 +314,8 @@ def _closures(reader: FieldReader, item: dict, path: str, restaurant: Restaurant
             reader.reject(where, "must be the closure of one of the restaurant's stored plans")
         elif closure in state.closures.get(restaurant.id, []):
             reader.reject(where, "repeats a closure")
+        elif any(overlaps(closure, booking) for booking in state.confirmed_on(restaurant.id, closure.table_id)):
+            reader.reject(where, "overlaps a confirmed booking on its table")
         else:
             state.closures.setdefault(restaurant.id, []).append(closure)
 
