@@ -18,7 +18,7 @@ import { dateOf, reservedTables } from "./reservation.js";
 import * as session from "./session.js";
 import { busy, button, field, idle, loadingTrack, notice, signInNotice } from "./ui.js";
 import {
-  capacityOf, count, dateInWords, panelDescription, PARTY_SIZE_PROBLEM, seatingName, weekdayOf,
+  capacityOf, count, dateInWords, panelDescription, PARTY_SIZE_PROBLEM, refusalWords, seatingName, weekdayOf,
 } from "./words.js";
 
 // Past this the answer counts as lost; the service answers well within it.
@@ -59,12 +59,12 @@ function requestBody({ tables, slot, restaurant }, partyText) {
 
 function outcomeOf({ status, data }) {
   if (status >= 200 && status < 300 && typeof data?.reference === "string") return { kind: "booked", reservation: data };
-  if (status >= 400 && status < 500 && data?.error) return { kind: "refused", error: data.error };
+  if (status >= 400 && status < 500 && data?.error) return { kind: "refused", status, error: data.error };
   return { kind: "uncertain" };
 }
 
 // A refusal in words, naming the choice; `party` marks the party size as the field at fault.
-function refusal({ tables, slot }, error) {
+function refusal({ tables, slot }, { status, error }) {
   const name = seatingName(tables);
   const one = tables.length === 1;
   if (error.code === "table_unavailable") {
@@ -76,8 +76,8 @@ function refusal({ tables, slot }, error) {
   if (error.code === "party_exceeds_capacity") {
     return { title: `${name} ${one ? "seats" : "seat"} ${count(capacityOf(tables))} at most`, body: "Choose a larger table or a smaller party.", party: true };
   }
-  if (error.message.startsWith("party_size ")) return { title: PARTY_SIZE_PROBLEM, party: true };
-  return { title: `We could not book ${name} at ${timeOf(slot)}`, body: error.message };
+  const { field, sentence } = refusalWords(status, error, { fields: { party_size: PARTY_SIZE_PROBLEM } });
+  return field ? { title: sentence, party: true } : { title: `We could not book ${name} at ${timeOf(slot)}`, body: sentence };
 }
 
 // The confirmation, built only from the service's reservation.
@@ -112,7 +112,7 @@ function bookingForm(choice, onTaken) {
         body: "Your booking may already be in. Press Book again: the same details never book twice.",
       });
     }
-    const { party: partyAtFault, ...words } = refusal(choice, outcome.error);
+    const { party: partyAtFault, ...words } = refusal(choice, outcome);
     if (partyAtFault) party.input.setAttribute("aria-invalid", "true");
     return notice({ tone: "refused", testid: "booking-error", ...words });
   }

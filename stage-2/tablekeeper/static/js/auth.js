@@ -5,6 +5,7 @@ import { call } from "./api.js";
 import { el } from "./dom.js";
 import * as session from "./session.js";
 import { busy, button, field, idle, notice } from "./ui.js";
+import { refusalWords } from "./words.js";
 
 // What a refused field means, keyed by the field the service names.
 const FIELD_PROBLEMS = {
@@ -15,12 +16,11 @@ const FIELD_PROBLEMS = {
 
 function problemOf(status, error, screen) {
   if (status === 401) return { title: "Email or password is wrong" };
-  if (status === 409 && error.code === "email_taken") {
+  if (status === 409 && error?.code === "email_taken") {
     return { title: "That email already has an account", field: "email", withLogIn: true };
   }
-  const fieldName = Object.keys(FIELD_PROBLEMS).find((name) => error.message.startsWith(`${name} `));
-  if (fieldName) return { title: FIELD_PROBLEMS[fieldName], field: fieldName };
-  return { title: screen.refusedTitle, body: error.message };
+  const { field: fieldName, sentence } = refusalWords(status, error, { fields: FIELD_PROBLEMS });
+  return fieldName ? { title: sentence, field: fieldName } : { title: screen.refusedTitle, body: sentence };
 }
 
 function authScreen(main, screen) {
@@ -56,7 +56,7 @@ function authScreen(main, screen) {
         location.assign("/");
         return;
       }
-      showProblem(problemOf(status, data.error, screen));
+      showProblem(problemOf(status, data?.error, screen));
     } catch {
       showProblem({ title: "The restaurant did not answer", body: "Nothing was changed. Try again in a moment." });
     }

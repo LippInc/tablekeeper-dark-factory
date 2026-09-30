@@ -10,6 +10,19 @@ const LONGEST_CODE = 4;
 // What a refused party size means, wherever the diner typed it.
 export const PARTY_SIZE_PROBLEM = "Enter how many are coming as a whole number, one or more.";
 
+const REFUSED = "The restaurant could not accept this. Nothing was changed. Check the details and try again.";
+const UNANSWERED = "The restaurant did not answer. Nothing was changed. Try again in a moment.";
+
+// A refusal told in our own words, never in the service's (R218, R226): the screen's sentence
+// for the field the service names, otherwise one chosen by the kind of refusal (a service
+// error reads as no answer). A screen may give its own `refused` and `unanswered` sentences.
+export function refusalWords(status, error, { fields = {}, refused = REFUSED, unanswered = UNANSWERED } = {}) {
+  const message = error?.message ?? "";
+  const field = Object.keys(fields).find((name) => message.startsWith(`${name} `));
+  if (field) return { field, sentence: fields[field] };
+  return { sentence: status >= 500 ? unanswered : refused };
+}
+
 function parts(isoDate) {
   const [year, month, day] = isoDate.split("-").map(Number);
   return { year, month, day, weekday: WEEKDAYS[new Date(Date.UTC(year, month - 1, day)).getUTCDay()] };

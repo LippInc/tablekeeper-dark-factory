@@ -11,7 +11,7 @@ import { timeOf } from "./grid.js";
 import { dateOf, reservedTables } from "./reservation.js";
 import * as session from "./session.js";
 import { busy, button, field, idle, notice, signInNotice } from "./ui.js";
-import { count, dateInWords, seatingName } from "./words.js";
+import { count, dateInWords, refusalWords, seatingName } from "./words.js";
 
 // Past this an answer counts as lost; the service answers well within it.
 const ANSWER_TIMEOUT_MS = 10000;
@@ -47,7 +47,7 @@ function noAnswer() {
   return notice({ tone: "refused", title: "We could not look up the booking", body: "The restaurant did not answer. Try again in a moment." });
 }
 
-function cancelRefusal(error, restaurant) {
+function cancelRefusal({ status, data: { error } }, restaurant) {
   if (error.code === "cutoff_passed") {
     const minutes = restaurant.cancellation_cutoff_minutes;
     return {
@@ -55,7 +55,7 @@ function cancelRefusal(error, restaurant) {
       body: `Bookings can be cancelled until ${minutes ? `${duration(minutes)} before they start` : "they start"}.`,
     };
   }
-  return { title: "We could not cancel this booking", body: "Nothing was changed. Try again in a moment." };
+  return { title: "We could not cancel this booking", body: refusalWords(status, error).sentence };
 }
 
 // The found booking (`reservation-detail`); `show` replaces it with the service's next answer.
@@ -100,7 +100,7 @@ function cancelling(reservation, restaurant, show) {
     }
     // Cancelling twice is not an error, so an unanswered cancel is simply pressed again.
     moment.replaceChildren(answer?.data?.error
-      ? notice({ tone: "refused", testid: "reservation-error", ...cancelRefusal(answer.data.error, restaurant) })
+      ? notice({ tone: "refused", testid: "reservation-error", ...cancelRefusal(answer, restaurant) })
       : notice({
         tone: "uncertain", title: "No reply from the restaurant yet",
         body: "The booking may already be cancelled. Press Cancel booking again to make sure.",

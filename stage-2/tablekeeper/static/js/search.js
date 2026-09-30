@@ -10,7 +10,7 @@ import { el } from "./dom.js";
 import { quietRoom } from "./draw.js";
 import { anyOpen, gridRows, timeOf } from "./grid.js";
 import { button, field, loadingTrack } from "./ui.js";
-import { count, dateInWords, PARTY_SIZE_PROBLEM, today, weekdayOf } from "./words.js";
+import { count, dateInWords, PARTY_SIZE_PROBLEM, refusalWords, today, weekdayOf } from "./words.js";
 
 const LEAST_RESULTS_HEIGHT = 360;
 
@@ -24,14 +24,11 @@ const SEARCH_UNKNOWN_RESTAURANT = "This restaurant is not taking bookings any mo
 const SEARCH_REFUSED = "Check the restaurant, date and party size, then search again.";
 const SEARCH_UNANSWERED = "The restaurant did not answer. Nothing was booked. Search again in a moment.";
 
-// The sentence for a refused search, always in our own words (R218): the field at fault when
-// the service names one, otherwise what the kind of refusal means; never the service's message.
+// The sentence for a refused search: an unknown restaurant, the field at fault, or the kind of
+// refusal, in the search's own words.
 function searchProblem({ status, data }) {
-  const message = data?.error?.message ?? "";
-  const field = Object.keys(SEARCH_PROBLEMS).find((name) => message.startsWith(`${name} `));
-  if (field) return SEARCH_PROBLEMS[field];
   if (status === 404) return SEARCH_UNKNOWN_RESTAURANT;
-  return status < 500 ? SEARCH_REFUSED : SEARCH_UNANSWERED;
+  return refusalWords(status, data?.error, { fields: SEARCH_PROBLEMS, refused: SEARCH_REFUSED, unanswered: SEARCH_UNANSWERED }).sentence;
 }
 
 // A composed state of the results area (DESIGN.md 3.9): the restaurant, a heading with the
