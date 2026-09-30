@@ -119,10 +119,10 @@ Icons are not used. The only pictures are the floor-plan drawings (section 4) an
 
 The fixture holds only ids, a restaurant name and time zone, table labels and capacities, combinable pairs, slot times and reservation fields. Every visible phrase below is derived from those; no other data is invented.
 
-- **Table name:** a label of at most 4 characters with no space gets the prefix "Table": label `"1"` → **Table 1**. A longer label is shown as given (`"Window"` → **Window**).
-- **Pair name:** both labels short → **Tables 1 + 2**; otherwise **Window + Bar**. Always in `combinable` order. The name always contains every member's label (so `booking-summary`, `confirmation-tables` and `reservation-tables` name every table).
+- **Table name:** a label that is a code gets the prefix "Table"; any other label is a name and is shown as given. A code is at most 4 characters with no space that either contains a digit or is a single letter: `"1"` → **Table 1**, `"12"` → **Table 12**, `"A3"` → **Table A3**, `"B"` → **Table B**; `"Bar"` → **Bar**, `"Window"` → **Window**, `"Terrace 2"` → **Terrace 2**.
+- **Pair name:** each member reads exactly as on its own row, joined by " + ", in `combinable` order; the one contraction is that when both members are codes the prefix is said once: **Tables 1 + 2**. Otherwise: **Bar + Window**, **Table 3 + Window**. The name always contains every member's label (so `booking-summary`, `confirmation-tables` and `reservation-tables` name every table).
 - **Row description:** `{size word}, seats {N}`. Size word from capacity: 1–2 **Small table**, 3–4 **Medium table**, 5–8 **Large table**, 9 or more **Banquet table**. A pair: **Joined pair, seats {sum}**.
-- **Panel description:** a single table: `{Size word}, for up to {N in words}` ("Medium table, for up to four"). A pair: `Tables 1 and 2 pushed together, for up to six`.
+- **Panel description:** a single table: `{Size word}, for up to {N in words}` ("Medium table, for up to four"). A pair: the pair name with " + " read as " and ", then `pushed together, for up to {N in words}` ("Tables 1 and 2 pushed together, for up to six", "Bar and Window pushed together, for up to eight").
 - **Dates:** in words, `Weekday D Month`, for example **Wednesday 7 October**; add the year only when it is not the current year (**Friday 8 January 2027**). The date input keeps its `YYYY-MM-DD` value; only text we write is in words.
 - **Times:** 24-hour `HH:MM` with a leading zero (**09:00**, **18:30**), exactly as in the slot grid, always the restaurant's local time.
 - **Party size:** in words from one to twelve ("for four"), digits above ("for 14").
