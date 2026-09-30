@@ -3,8 +3,8 @@
 The export is a frozen contract that the next stage imports. Everything is stored as data
 and nothing is recomputed on import: password hash records with their parameters and salt,
 bearer tokens, references, timestamps, and every completed keyed write's canonical request
-and original response exactly as sent. `schema` numbers this state layout so a later stage
-can migrate it explicitly.
+and original response exactly as sent. `schema` numbers this state layout; an export of an
+earlier schema is migrated to the current one before it is restored (`migrations`).
 """
 from __future__ import annotations
 
@@ -16,12 +16,12 @@ from .domain import Reservation, User, restaurant_detail
 from .errors import invalid
 from .fields import FieldReader, at
 from .idempotency import MAX_KEY_LENGTH, is_canonical_request
+from .migrations import SCHEMA, upgraded
 from .records import Records
 from .store import Receipt, Scope, State
 
 TRACK = "tablekeeper"
 FORMAT_VERSION = 1
-SCHEMA = 2  # 2: reservations hold table_ids; restaurants declare combinable pairs
 
 
 def export(state: State) -> dict:
@@ -56,8 +56,9 @@ def restore(body: Any) -> State:
     if body.get("track") != TRACK or not _is_int(body.get("format_version"), FORMAT_VERSION):
         raise invalid(f"track must be {TRACK!r} and format_version {FORMAT_VERSION}")
     data = body.get("state")
-    if not isinstance(data, dict) or not _is_int(data.get("schema"), SCHEMA):
-        raise invalid(f"state must be an object with schema {SCHEMA}")
+    data = upgraded(data) if isinstance(data, dict) else None
+    if data is None:
+        raise invalid(f"state must be an object with a schema from 1 to {SCHEMA}")
     reader = FieldReader()
     records = Records(reader)
     state = State()
