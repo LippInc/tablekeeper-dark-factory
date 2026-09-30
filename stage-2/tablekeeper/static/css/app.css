@@ -366,12 +366,9 @@ a { color: inherit; }
 
 .button-text:hover { color: var(--tk-text); }
 
-/* Line breaks (DESIGN.md section 2): wrapping text leaves no word alone on its last line,
-   and a phrase marked to keep together never splits. */
+/* Line breaks (DESIGN.md section 2): wrapping text leaves no word alone on its last line. */
 .lede, .card-lede, .row-description, .panel-description, .notice-title, .notice-body,
 .results-notice-sentence { text-wrap: pretty; }
-
-.keep-together { white-space: nowrap; }
 
 /* ---- 3.8 / 3.10 Notices ------------------------------------------------------------ */
 
@@ -812,11 +809,14 @@ a { color: inherit; }
   padding: 20px;
 }
 
-/* The placeholder holds the panel's place wherever the panel has one before a choice: beside
-   the results on desktop and below them in the middle band; a phone shows the panel only once
-   a time is chosen. */
 @media (min-width: 720px) {
   .booking-panel-form, .booking-panel-signed-out { padding: 28px; }
+}
+
+/* The placeholder holds the panel's place beside the results, on desktop only; below them the
+   panel appears once a time is chosen. */
+@media (min-width: 1024px) {
+  .booking-panel { margin-top: var(--tk-s7); }
 
   .booking-panel-empty {
     display: block;
@@ -824,10 +824,6 @@ a { color: inherit; }
     border-radius: 4px;
     padding: 28px;
   }
-}
-
-@media (min-width: 1024px) {
-  .booking-panel { margin-top: var(--tk-s7); }
 }
 
 .booking-panel .room-drawing { margin: var(--tk-s4) 0; }

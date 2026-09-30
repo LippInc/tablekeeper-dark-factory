@@ -66,10 +66,10 @@ export function capacityOf(tables) {
   return tables.reduce((sum, table) => sum + table.capacity, 0);
 }
 
-// The row's description in two parts, so "seats N" can be kept on one line:
-// "Medium table, " + "seats 4" / "Joined pair, " + "seats 6".
+// The row's description: "Medium table, seats 4" / "Joined pair, seats 6", with a no-break
+// space in "seats N" so a narrow column breaks after the comma, never before the number.
 export function rowDescription(tables) {
-  return [`${tables.length === 1 ? sizeWord(tables[0].capacity) : "Joined pair"}, `, `seats ${capacityOf(tables)}`];
+  return `${tables.length === 1 ? sizeWord(tables[0].capacity) : "Joined pair"}, seats\u00A0${capacityOf(tables)}`;
 }
 
 // The booking panel's description: "Medium table, for up to four" /
