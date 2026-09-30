@@ -138,13 +138,13 @@ def _available(views: list[tuple[dict, bytearray]], index: int) -> dict:
 
 def _taken_slots(state: State, restaurant: Restaurant, table_id: str,
                  offsets: list[timedelta], duration: timedelta) -> bytearray:
-    """Marks, per slot, whether a confirmed booking holds the table for part of a booking of
-    `duration` from that slot. Each booking, for its own accepted duration, marks the slots
+    """Marks, per slot, whether a confirmed booking or a closure holds the table for part of a
+    booking of `duration` from that slot. Each hold, over its own interval, marks the slots
     inside its clash window, found by bisection in the ascending `offsets`, so the cost grows
-    with the table's bookings, not with them times the slots."""
+    with the table's holds, not with them times the slots."""
     taken = bytearray(len(offsets))
-    for booked in state.confirmed_on(restaurant.id, table_id):
-        low, high = clash_window(booked.starts_at - _EPOCH, booked.terms.duration, duration)
+    for held in state.holds_on(restaurant.id, table_id):
+        low, high = clash_window(held.starts_at - _EPOCH, held.ends_at - held.starts_at, duration)
         first, last = bisect_right(offsets, low), bisect_left(offsets, high)
         taken[first:last] = b"\x01" * (last - first)
     return taken

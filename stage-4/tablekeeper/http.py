@@ -173,6 +173,12 @@ async def preview_replan(request: Request) -> Response:
         state, user, restaurant_id, body))
 
 
+async def apply_replan(request: Request) -> Response:
+    restaurant_id, plan_id = request.path_params["restaurant_id"], request.path_params["plan_id"]
+    return await _keyed_write(request, lambda state, user, _body: replans.apply_plan(
+        state, user, restaurant_id, plan_id))
+
+
 async def get_availability(request: Request) -> Response:
     reader = FieldReader()
     restaurant_id = reader.identifier_param(request.query_params, "restaurant_id")
@@ -284,6 +290,7 @@ ROUTES = [
     Route("/restaurants/{restaurant_id}/policies", list_policies, methods=["GET"]),
     Route("/restaurants/{restaurant_id}/policies", publish_policy, methods=["POST"]),
     Route("/restaurants/{restaurant_id}/replans", preview_replan, methods=["POST"]),
+    Route("/restaurants/{restaurant_id}/replans/{plan_id}/apply", apply_replan, methods=["POST"]),
     Route("/availability", get_availability, methods=["GET"]),
     Route("/reservations", list_reservations, methods=["GET"]),
     Route("/reservations", create_reservation, methods=["POST"]),

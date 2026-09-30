@@ -110,6 +110,17 @@ class Reservation:
         return self.starts_at + self.terms.duration
 
 
+@dataclass(frozen=True)
+class Closure:
+    """A table taken out of service over [starts_at, ends_at) by an applied plan (stage 4): it
+    holds the table like a booking does, for every single and pair containing it."""
+    restaurant_id: str
+    table_id: str
+    starts_at: datetime  # UTC
+    ends_at: datetime  # UTC
+    plan_id: str
+
+
 def clash_window(offset: timedelta, duration: timedelta,
                  other: timedelta) -> tuple[timedelta, timedelta]:
     """The open interval of start offsets at which a booking lasting `other` shares time with
@@ -122,9 +133,10 @@ def clash_window(offset: timedelta, duration: timedelta,
     return offset - other, offset + duration
 
 
-def overlaps(a: Reservation, b: Reservation) -> bool:
-    """Whether bookings `a` and `b`, each for its own accepted duration, share any time."""
-    low, high = clash_window(b.starts_at - a.starts_at, b.terms.duration, a.terms.duration)
+def overlaps(a: Reservation | Closure, b: Reservation | Closure) -> bool:
+    """Whether `a` and `b` share any time: a booking for its own accepted duration, a closure
+    over its interval."""
+    low, high = clash_window(b.starts_at - a.starts_at, b.ends_at - b.starts_at, a.ends_at - a.starts_at)
     return low < timedelta(0) < high
 
 

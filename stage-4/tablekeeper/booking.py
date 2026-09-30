@@ -15,7 +15,7 @@ from dataclasses import dataclass, replace
 from datetime import datetime, timedelta
 
 from . import history, schedule, series, timeutil
-from .domain import (CANCELLED, CONFIRMED, Policy, Reservation, Restaurant, User,
+from .domain import (CANCELLED, CONFIRMED, Closure, Policy, Reservation, Restaurant, User,
                      find_restaurant, overlaps, own_reservation, read_local, read_party_size,
                      read_table_ids, select_tables, show)
 from .errors import ApiError, invalid
@@ -119,44 +119,50 @@ def amended(state: State, current: Reservation, changes: Changes, reader: FieldR
 
 def _check_free(state: State, bookings: list[Reservation]) -> None:
     """409 `table_unavailable` unless every confirmed booking listed is free, on each of its
-    tables and for its own duration, of every other confirmed booking there: those listed,
-    and those not listed, whose previous occupancy no longer counts."""
+    tables and for its own duration, of every closure and every other confirmed booking there:
+    those listed, and those not listed, whose previous occupancy no longer counts."""
     confirmed = [booking for booking in bookings if booking.status == CONFIRMED]
     listed = {booking.reference for booking in bookings}
     for index, booking in enumerate(confirmed):
         for table_id in booking.table_ids:
-            rivals = [b for b in state.confirmed_on(booking.restaurant_id, table_id)
-                      if b.reference not in listed]
+            rivals = state.holds_on(booking.restaurant_id, table_id, excluding=listed)
             rivals += [b for b in confirmed[:index] if b.restaurant_id == booking.restaurant_id
                        and table_id in b.table_ids]
             if any(overlaps(booking, rival) for rival in rivals):
                 raise ApiError(409, "table_unavailable", "a table is taken at that time")
 
 
-def apply(state: State, bookings: list[Reservation]) -> list[Reservation]:
+def apply(state: State, bookings: list[Reservation], closure: Closure | None = None) -> list[Reservation]:
     """Store `bookings` together, all or none: new bookings, or new versions of existing
-    ones. Returns the stored bookings in the same order.
+    ones. Returns the stored bookings in the same order. With a `closure` the operation is a
+    seating repair: an applied plan's moved bookings and the closure it records.
 
     A version equal to the stored booking is a no-op and is left as it is. Phase one checks
     the changed versions' occupancy (`_check_free`). Phase two alone changes the state: each
-    changed booking is stored one revision further and its history gains one entry, all of
-    the operation's entries at one time, each series with a changed occurrence records the
-    operation once, and so does each restaurant with a changed booking.
+    changed booking is stored one revision further and its history gains one entry (a
+    repair's names its plan), all of the operation's entries at one time; each series with a
+    changed occurrence records the operation once; the closure is recorded; and each
+    restaurant with a changed booking or the closure records the operation once.
     """
     changed = [booking for booking in bookings if state.reservations.get(booking.reference) != booking]
     _check_free(state, changed)
     stored = {}
     changes = []
     at = timeutil.now()
+    plan_id = None if closure is None else closure.plan_id
     for booking in changed:
         previous = state.reservations.get(booking.reference)
         version = booking if previous is None else replace(booking, revision=previous.revision + 1)
         state.put_reservation(version)
-        history.record(state, previous, version, at)
+        history.record(state, previous, version, at, plan_id)
         changes.append((previous, version))
         stored[version.reference] = version
-    series.record(state, changes)
-    state.changed(booking.restaurant_id for booking in changed)
+    series.record(state, changes, repair=closure is not None)
+    restaurant_ids = [booking.restaurant_id for booking in changed]
+    if closure is not None:
+        state.closures.setdefault(closure.restaurant_id, []).append(closure)
+        restaurant_ids.append(closure.restaurant_id)
+    state.changed(restaurant_ids)
     return [stored.get(booking.reference, booking) for booking in bookings]
 
 

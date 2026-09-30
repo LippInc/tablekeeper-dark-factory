@@ -3,7 +3,8 @@ the occurrences generated after it.
 
 A series changes only in the second phase of `booking.apply`, alongside its occurrences:
 each operation that really changes or cancels occurrences of a series raises its revision
-once, and an occurrence the diner really changed stays an exception for good.
+once, and an occurrence the diner really changed stays an exception for good; a seating
+repair that moves an occurrence marks no exception.
 """
 from __future__ import annotations
 
@@ -39,16 +40,18 @@ def add(state: State, series: Series) -> None:
         state.series_by_reference[occurrence.reference] = series.id
 
 
-def record(state: State, changes: list[tuple[Reservation | None, Reservation]]) -> None:
+def record(state: State, changes: list[tuple[Reservation | None, Reservation]], *,
+           repair: bool = False) -> None:
     """Phase two of an operation's `changes` (previous, current): each series with an
-    occurrence changed or cancelled gains one revision; each really changed occurrence
-    becomes an exception. New reservations belong to no series yet."""
+    occurrence changed or cancelled gains one revision; each occurrence the diner really
+    changed becomes an exception, one a seating `repair` moved does not. New reservations
+    belong to no series yet."""
     touched: dict[str, set[str]] = {}
     for previous, current in changes:
         series_id = state.series_by_reference.get(current.reference)
         if previous is not None and series_id is not None:
             exceptions = touched.setdefault(series_id, set())
-            if current.status != CANCELLED:
+            if current.status != CANCELLED and not repair:
                 exceptions.add(current.reference)
     for series_id, exceptions in touched.items():
         series = state.series[series_id]

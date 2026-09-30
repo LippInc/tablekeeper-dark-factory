@@ -61,9 +61,10 @@ def _schema_2_to_3(state: dict) -> dict:
 
 def _schema_3_to_4(state: dict) -> dict:
     """Stage 4 counts each restaurant's changes and plans seatings (Q5, Q24): an earlier
-    stage's restaurant stands at revision 0, as after a reset, and there are no plans."""
+    stage's restaurant stands at revision 0, as after a reset, with no closures, and there
+    are no plans."""
     return {**state, "schema": 4, "plans": [],
-            "restaurants": _each(state, "restaurants", lambda record: _extended(record, revision=0))}
+            "restaurants": _each(state, "restaurants", lambda record: _extended(record, revision=0, closures=[]))}
 
 
 MIGRATIONS = {1: _schema_1_to_2, 2: _schema_2_to_3, 3: _schema_3_to_4}

@@ -13,9 +13,9 @@ from typing import Any
 
 from . import planner, timeutil
 from .auth import is_hash_record
-from .history import EVENTS, FIELDS, Change, Entry
+from .history import EVENTS, FIELDS, REASSIGNED, Change, Entry
 from .series import Occurrence, Series, add
-from .domain import Policy, Reservation, Restaurant, User, published_policy, restaurant_detail
+from .domain import Closure, Policy, Reservation, Restaurant, User, published_policy, restaurant_detail
 from .errors import invalid
 from .fields import FieldReader, at
 from .idempotency import MAX_KEY_LENGTH, is_canonical_request
@@ -51,11 +51,13 @@ def export(state: State) -> dict:
 
 
 def _restaurant_record(state: State, restaurant: Restaurant) -> dict:
-    """The fixture's shape, with the managers, the published policies and the restaurant's
-    revision."""
+    """The fixture's shape, with the managers, the published policies, the restaurant's
+    revision and its closures."""
     return {**restaurant_detail(restaurant), "manager_user_ids": list(restaurant.manager_user_ids),
             "policies": [published_policy(p) for p in state.policies.get(restaurant.id, [])],
-            "revision": state.restaurant_revision(restaurant.id)}
+            "revision": state.restaurant_revision(restaurant.id),
+            "closures": [{"table_id": c.table_id, "from": c.starts_at.isoformat(), "to": c.ends_at.isoformat(),
+                          "plan_id": c.plan_id} for c in state.closures.get(restaurant.id, [])]}
 
 
 def _reservation_record(state: State, reservation: Reservation) -> dict:
@@ -70,6 +72,7 @@ def _reservation_record(state: State, reservation: Reservation) -> dict:
             "history": [{"seq": entry.seq, "at": entry.at.isoformat(), "event": entry.event,
                          "changes": [{"field": change.field, "from": _value(change.before),
                                       "to": _value(change.after)} for change in entry.changes],
+                         **({} if entry.plan_id is None else {"plan_id": entry.plan_id}),
                          "revision": entry.revision, "policy_version": entry.terms.version}
                         for entry in state.history[reservation.reference]]}
 
@@ -104,12 +107,14 @@ def restore(body: Any) -> State:
         elif account is not None and password_hash is not None:
             state.add_user(User(account.id, account.email, account.display_name, password_hash))
     state.tokens = _tokens(reader, data, records.user_ids)
+    restaurant_records = []
     for path, item in reader.objects(data, "restaurants"):
         restaurant = records.restaurant(item, path)
         revision = reader.integer(item, "revision", path, minimum=0)
         if restaurant is not None:
             state.policies[restaurant.id] = _policies(reader, item, path, restaurant)
             state.restaurant_revisions[restaurant.id] = revision
+            restaurant_records.append((path, item, restaurant))
     state.restaurants = records.restaurants
     reservations = _reservations(reader, records, data, state)
     records.reject_overlaps(reservations)
@@ -119,6 +124,8 @@ def restore(body: Any) -> State:
         _series(reader, item, path, state)
     for path, item in reader.objects(data, "plans"):
         _plan(reader, item, path, state)
+    for path, item, restaurant in restaurant_records:
+        _closures(reader, item, path, restaurant, state)
     state.receipts = _receipts(reader, data, records.user_ids)
     reader.raise_as_invalid()
     return state
@@ -185,11 +192,12 @@ def _history(reader: FieldReader, item: dict, path: str, policies: list[Policy])
         revision = reader.integer(record, "revision", where, minimum=1)
         version = reader.integer(record, "policy_version", where, minimum=0, maximum=len(policies) - 1)
         changes = [_change(reader, change, place) for place, change in reader.objects(record, "changes", where)]
+        plan_id = reader.identifier(record, "plan_id", where) if event == REASSIGNED else None
         if event is not None and event not in EVENTS:
             reader.reject(at(where, "event"), f"must be one of {', '.join(EVENTS)}")
-        elif None not in (seq, when, event, revision, version, *changes):
+        elif None not in (seq, when, event, revision, version, *changes) and (plan_id or event != REASSIGNED):
             entries.append(Entry(seq=seq, at=when, event=event, changes=tuple(changes),
-                                 revision=revision, terms=policies[version]))
+                                 revision=revision, terms=policies[version], plan_id=plan_id))
     return entries
 
 
@@ -286,6 +294,26 @@ def _plan(reader: FieldReader, item: dict, path: str, state: State) -> None:
     elif None not in (plan_id, closed, revision, unused, moved):
         state.plans[plan_id] = Plan(plan_id, restaurant.id, closed[0], closure["from"], closure["to"],
                                     tuple(seats), unused, revision)
+
+
+def _closures(reader: FieldReader, item: dict, path: str, restaurant: Restaurant, state: State) -> None:
+    """A restaurant's closures, each the one recorded by applying one of its stored plans:
+    that plan's table and interval."""
+    for where, record in reader.objects(item, "closures", path):
+        closed = read_closure(reader, record, where)
+        plan_id = reader.identifier(record, "plan_id", where)
+        if closed is None or plan_id is None:
+            continue
+        closure = Closure(restaurant.id, *closed, plan_id)
+        plan = state.plans.get(plan_id)
+        if restaurant.table(closure.table_id) is None:
+            reader.reject(at(where, "table_id"), "is not a table of the restaurant")
+        elif plan is None or plan.closure() != closure:
+            reader.reject(where, "must be the closure of one of the restaurant's stored plans")
+        elif closure in state.closures.get(restaurant.id, []):
+            reader.reject(where, "repeats a closure")
+        else:
+            state.closures.setdefault(restaurant.id, []).append(closure)
 
 
 def _receipts(reader: FieldReader, data: dict, user_ids: set[str]) -> dict[Scope, Receipt]:

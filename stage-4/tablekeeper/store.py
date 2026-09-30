@@ -7,7 +7,7 @@ from contextlib import asynccontextmanager
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING
 
-from .domain import CONFIRMED, Policy, Reservation, Restaurant, User
+from .domain import CONFIRMED, Closure, Policy, Reservation, Restaurant, User
 from .history import Entry
 from .series import Series
 
@@ -55,6 +55,7 @@ class State:
     # (`changed`); 0 when absent, as after a reset. An import restores the exported values.
     restaurant_revisions: dict[str, int] = field(default_factory=dict)
     plans: dict[str, Plan] = field(default_factory=dict)  # previewed seatings, by plan id
+    closures: dict[str, list[Closure]] = field(default_factory=dict)  # applied, per restaurant
     # Rendered answers, each with the revision of the restaurant it describes at rendering.
     answers: dict[Hashable, tuple[int, bytes]] = field(default_factory=dict)
 
@@ -107,6 +108,14 @@ class State:
 
     def confirmed_on(self, restaurant_id: str, table_id: str) -> Iterable[Reservation]:
         return self.table_bookings.get((restaurant_id, table_id), {}).values()
+
+    def holds_on(self, restaurant_id: str, table_id: str,
+                 excluding: Container[str] = ()) -> list[Reservation | Closure]:
+        """What keeps the table from a booking for part of its time (the one occupancy rule):
+        its confirmed bookings but those whose references are in `excluding`, and its closures."""
+        return [*(booking for booking in self.confirmed_on(restaurant_id, table_id)
+                  if booking.reference not in excluding),
+                *(closure for closure in self.closures.get(restaurant_id, []) if closure.table_id == table_id)]
 
 
 def fresh(generate: Callable[[], str], taken: Container[str]) -> str:
