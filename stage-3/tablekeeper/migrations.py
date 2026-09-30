@@ -43,7 +43,7 @@ def _schema_2_to_3(state: dict) -> dict:
     """Stage 3 adds dated policies, revisions and history (H6, P4): a restaurant has managers
     and published policies (none before), and every reservation stands at revision 1 under
     policy 0, the exported restaurant's own rules, which it was booked under, with one
-    `created` entry at its creation holding its fields as they are."""
+    `created` entry at its creation holding its fields as they are; there are no series."""
     def reservation(record: Any) -> Any:
         if not isinstance(record, dict):
             return record
@@ -53,7 +53,7 @@ def _schema_2_to_3(state: dict) -> dict:
                    "revision": 1, "policy_version": 0}
         return {**record, "revision": 1, "policy_version": 0, "history": [created]}
 
-    return {**state, "schema": 3,
+    return {**state, "schema": 3, "series": [],
             "restaurants": _each(state, "restaurants", lambda record: _extended(
                 record, manager_user_ids=[], policies=[])),
             "reservations": _each(state, "reservations", reservation)}

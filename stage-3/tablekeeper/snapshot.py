@@ -14,6 +14,7 @@ from typing import Any
 from . import timeutil
 from .auth import is_hash_record
 from .history import EVENTS, FIELDS, Change, Entry
+from .series import Occurrence, Series, add
 from .domain import Policy, Reservation, Restaurant, User, published_policy, restaurant_detail
 from .errors import invalid
 from .fields import FieldReader, at
@@ -36,6 +37,11 @@ def export(state: State) -> dict:
         "tokens": dict(state.tokens),
         "restaurants": [_restaurant_record(state, r) for r in state.restaurants.values()],
         "reservations": [_reservation_record(state, r) for r in state.reservations.values()],
+        "series": [{"id": s.id, "user_id": s.user_id, "interval_weeks": s.interval_weeks,
+                    "revision": s.revision,
+                    "occurrences": [{"index": o.index, "reference": o.reference, "exception": o.exception}
+                                    for o in s.occurrences]}
+                   for s in state.series.values()],
         "receipts": [{"user_id": user_id, "method": method, "path": path, "key": key,
                       "request": receipt.request, "response": receipt.response}
                      for (user_id, method, path, key), receipt in state.receipts.items()],
@@ -103,6 +109,8 @@ def restore(body: Any) -> State:
     records.reject_overlaps(reservations)
     for reservation in reservations:
         state.put_reservation(reservation)
+    for path, item in reader.objects(data, "series"):
+        _series(reader, item, path, state)
     state.receipts = _receipts(reader, data, records.user_ids)
     reader.raise_as_invalid()
     return state
@@ -198,6 +206,35 @@ def _recorded(value: Any, name: str) -> Any:
     if name == "starts_at":
         return timeutil.parse_instant(value) if isinstance(value, str) else None
     return value if type(value) is int and value >= 1 else None
+
+
+def _series(reader: FieldReader, item: dict, path: str, state: State) -> None:
+    """A series: its owner's bookings at one restaurant as occurrences 0, 1, ..., each in no
+    other series, 2 to 12 of them."""
+    series_id = reader.identifier(item, "id", path)
+    user_id = reader.identifier(item, "user_id", path)
+    interval_weeks = reader.integer(item, "interval_weeks", path, minimum=1, maximum=4)
+    revision = reader.integer(item, "revision", path, minimum=1)
+    occurrences = []
+    for index, (where, record) in enumerate(reader.objects(item, "occurrences", path)):
+        reader.integer(record, "index", where, minimum=index, maximum=index)
+        reference = reader.read(record, "reference", "string", where)
+        exception = record.get("exception")
+        booking = state.reservations.get(reference)
+        if booking is None or booking.user_id != user_id or reference in state.series_by_reference:
+            reader.reject(at(where, "reference"), "must be one of the owner's bookings in no other series")
+        elif not isinstance(exception, bool):
+            reader.reject(at(where, "exception"), "must be true or false")
+        else:
+            occurrences.append(Occurrence(index, reference, exception))
+    if len({state.reservations[o.reference].restaurant_id for o in occurrences}) > 1:
+        reader.reject(at(path, "occurrences"), "must all be at one restaurant")
+    elif not 2 <= len(occurrences) <= 12:
+        reader.reject(at(path, "occurrences"), "must number 2 to 12")
+    elif series_id in state.series:
+        reader.reject(at(path, "id"), "is not unique")
+    elif None not in (series_id, user_id, interval_weeks, revision):
+        add(state, Series(series_id, user_id, interval_weeks, revision, tuple(occurrences)))
 
 
 def _receipts(reader: FieldReader, data: dict, user_ids: set[str]) -> dict[Scope, Receipt]:

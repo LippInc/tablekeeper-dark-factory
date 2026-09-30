@@ -11,7 +11,8 @@ from starlette.requests import Request
 from starlette.responses import JSONResponse, Response
 from starlette.routing import Route
 
-from . import auth, booking, domain, fixture, history, idempotency, policies, schedule, snapshot, web
+from . import (auth, booking, domain, fixture, history, idempotency, policies, schedule, series,
+               snapshot, web)
 from .domain import User
 from .errors import ApiError, malformed
 from .fields import FieldReader
@@ -227,6 +228,17 @@ async def amend_reservation(request: Request) -> Response:
         return JsonResponse(booking.amend(state, user, request.path_params["reference"], body))
 
 
+async def adopt_series(request: Request) -> Response:
+    return await _keyed_write(request, booking.adopt)
+
+
+async def get_series(request: Request) -> Response:
+    """Owner only; anyone else, signed in or not, gets 404."""
+    async with _store(request).transaction() as state:
+        user = auth.optional_user(state, request.headers.get("authorization"))
+        return JsonResponse(series.view(state, series.own_series(state, user, request.path_params["series_id"])))
+
+
 async def cancel_reservation(request: Request) -> Response:
     async with _store(request).transaction() as state:
         user = _caller(request, state)
@@ -273,6 +285,8 @@ ROUTES = [
     Route("/reservations/{reference}/decision", get_decision, methods=["GET"]),
     Route("/reservations/{reference}/history", get_history, methods=["GET"]),
     Route("/reservation-moves", move_reservations, methods=["POST"]),
+    Route("/series", adopt_series, methods=["POST"]),
+    Route("/series/{series_id}", get_series, methods=["GET"]),
 ]
 
 

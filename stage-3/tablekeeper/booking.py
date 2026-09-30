@@ -4,16 +4,17 @@ A booking is placed under the policy in force on its local start date and keeps 
 policy as its accepted terms: its duration and its cancellation cutoff. Every change goes
 through `apply` in two phases (H2): the first checks the resulting bookings for overlaps,
 each for its own duration, and the second alone stores them, all or none, one revision
-further on.
+further on, with their history and their series' effects. A booking adopted as a series
+anchor generates the series' later occurrences.
 """
 from __future__ import annotations
 
 import secrets
 import string
 from dataclasses import dataclass, replace
-from datetime import datetime
+from datetime import datetime, timedelta
 
-from . import history, schedule, timeutil
+from . import history, schedule, series, timeutil
 from .domain import (CANCELLED, CONFIRMED, Policy, Reservation, Restaurant, User,
                      find_restaurant, overlaps, own_reservation, read_local, read_party_size,
                      read_table_ids, select_tables, show)
@@ -25,6 +26,8 @@ from .store import State, fresh
 REFERENCE_ALPHABET = string.ascii_uppercase + string.digits
 REFERENCE_LENGTH = 8
 MAX_MOVES = 8
+MAX_OCCURRENCES = 12
+MAX_INTERVAL_WEEKS = 4
 
 
 @dataclass(frozen=True)
@@ -114,20 +117,12 @@ def amended(state: State, current: Reservation, changes: Changes, reader: FieldR
                    terms=terms)
 
 
-def apply(state: State, bookings: list[Reservation]) -> list[Reservation]:
-    """Store `bookings` together, all or none: new bookings, or new versions of existing
-    ones. Returns the stored bookings in the same order.
-
-    A version equal to the stored booking is a no-op and is left as it is. Phase one checks
-    that every other confirmed version is free, on each of its tables and for its own
-    duration, of every other confirmed booking there: those listed, and those not listed,
-    whose previous occupancy no longer counts. If any overlaps, 409 `table_unavailable`.
-    Phase two alone changes the state: each changed booking is stored one revision further
-    and its history gains one entry, all of the operation's entries at one time.
-    """
-    changed = [booking for booking in bookings if state.reservations.get(booking.reference) != booking]
-    confirmed = [booking for booking in changed if booking.status == CONFIRMED]
-    listed = {booking.reference for booking in changed}
+def _check_free(state: State, bookings: list[Reservation]) -> None:
+    """409 `table_unavailable` unless every confirmed booking listed is free, on each of its
+    tables and for its own duration, of every other confirmed booking there: those listed,
+    and those not listed, whose previous occupancy no longer counts."""
+    confirmed = [booking for booking in bookings if booking.status == CONFIRMED]
+    listed = {booking.reference for booking in bookings}
     for index, booking in enumerate(confirmed):
         for table_id in booking.table_ids:
             rivals = [b for b in state.confirmed_on(booking.restaurant_id, table_id)
@@ -136,18 +131,51 @@ def apply(state: State, bookings: list[Reservation]) -> list[Reservation]:
                        and table_id in b.table_ids]
             if any(overlaps(booking, rival) for rival in rivals):
                 raise ApiError(409, "table_unavailable", "a table is taken at that time")
+
+
+def apply(state: State, bookings: list[Reservation]) -> list[Reservation]:
+    """Store `bookings` together, all or none: new bookings, or new versions of existing
+    ones. Returns the stored bookings in the same order.
+
+    A version equal to the stored booking is a no-op and is left as it is. Phase one checks
+    the changed versions' occupancy (`_check_free`). Phase two alone changes the state: each
+    changed booking is stored one revision further and its history gains one entry, all of
+    the operation's entries at one time, and each series with a changed occurrence records
+    the operation once.
+    """
+    changed = [booking for booking in bookings if state.reservations.get(booking.reference) != booking]
+    _check_free(state, changed)
     stored = {}
+    changes = []
     at = timeutil.now()
     for booking in changed:
         previous = state.reservations.get(booking.reference)
         version = booking if previous is None else replace(booking, revision=previous.revision + 1)
         state.put_reservation(version)
         history.record(state, previous, version, at)
+        changes.append((previous, version))
         stored[version.reference] = version
+    series.record(state, changes)
     return [stored.get(booking.reference, booking) for booking in bookings]
 
 
 # ---- operations --------------------------------------------------------------
+
+def _new_booking(state: State, user: User, restaurant: Restaurant, table_ids: tuple[str, ...],
+                 local: datetime, party_size: int,
+                 pending: tuple[Reservation, ...] = ()) -> Reservation:
+    """A new booking the rules in force on its date allow, at revision 1 under that policy,
+    with an ID and a reference no stored or `pending` booking has."""
+    table_ids, starts_at, terms = _placed(state, restaurant, table_ids, local, party_size)
+    taken = [*state.reservations.values(), *pending]
+    return Reservation(
+        id=fresh(lambda: f"res_{secrets.token_hex(8)}", {r.id for r in taken}),
+        reference=fresh(lambda: "".join(secrets.choice(REFERENCE_ALPHABET)
+                                        for _ in range(REFERENCE_LENGTH)), {r.reference for r in taken}),
+        user_id=user.id, restaurant_id=restaurant.id, table_ids=table_ids,
+        party_size=party_size, starts_at=starts_at, status=CONFIRMED,
+        created_at=timeutil.now(), revision=1, terms=terms)
+
 
 def create(state: State, user: User, body: dict) -> dict:
     reader = FieldReader()
@@ -155,17 +183,45 @@ def create(state: State, user: User, body: dict) -> dict:
     changes = read_changes(reader, body, "", partial=False)
     reader.raise_first()
     restaurant = find_restaurant(state, restaurant_id)
-    table_ids, starts_at, terms = _placed(state, restaurant, changes.table_ids, changes.local,
-                                          changes.party_size)
-    booking = Reservation(
-        id=fresh(lambda: f"res_{secrets.token_hex(8)}", {r.id for r in state.reservations.values()}),
-        reference=fresh(lambda: "".join(secrets.choice(REFERENCE_ALPHABET)
-                                        for _ in range(REFERENCE_LENGTH)), state.reservations),
-        user_id=user.id, restaurant_id=restaurant.id, table_ids=table_ids,
-        party_size=changes.party_size, starts_at=starts_at, status=CONFIRMED,
-        created_at=timeutil.now(), revision=1, terms=terms)
+    booking = _new_booking(state, user, restaurant, changes.table_ids, changes.local, changes.party_size)
     [stored] = apply(state, [booking])
     return show(state, stored)
+
+
+def adopt(state: State, user: User, body: dict) -> dict:
+    """Adopt one of the caller's bookings as occurrence zero of a series and book the later
+    occurrences, all or none (H4). Occurrence i starts i x interval weeks after the anchor at
+    the same local clock time, under its own date's policy, with the anchor's party and
+    tables; the first occurrence in index order that cannot be booked decides the error (P5).
+    The anchor itself is left exactly as it is."""
+    reader = FieldReader()
+    anchor_reference = reader.identifier(body, "anchor_reference", "")
+    count = reader.integer(body, "count", "", minimum=2, maximum=MAX_OCCURRENCES)
+    interval_weeks = reader.integer(body, "interval_weeks", "", minimum=1, maximum=MAX_INTERVAL_WEEKS)
+    reader.raise_as_invalid()
+    anchor = own_reservation(state, user, anchor_reference)
+    if anchor.status == CANCELLED:
+        raise ApiError(409, "reservation_cancelled", "the reservation is cancelled")
+    if anchor.reference in state.series_by_reference:
+        raise ApiError(409, "already_in_series", "the reservation already belongs to a series")
+    _require_before_cutoff(anchor)
+    restaurant = state.restaurants[anchor.restaurant_id]
+    local = timeutil.wall_time(anchor.starts_at, restaurant.zone)
+    occurrences: list[Reservation] = []
+    for index in range(1, count):
+        occurrence = _new_booking(state, user, restaurant, anchor.table_ids,
+                                  local + timedelta(weeks=index * interval_weeks),
+                                  anchor.party_size, tuple(occurrences))
+        _check_free(state, [*occurrences, occurrence])
+        occurrences.append(occurrence)
+    apply(state, occurrences)
+    adopted = series.Series(
+        id=fresh(lambda: f"ser_{secrets.token_hex(8)}", state.series), user_id=user.id,
+        interval_weeks=interval_weeks, revision=1,
+        occurrences=tuple(series.Occurrence(index, booking.reference)
+                          for index, booking in enumerate([anchor, *occurrences])))
+    series.add(state, adopted)
+    return series.view(state, adopted)
 
 
 def amend(state: State, user: User, reference: str, body: dict) -> dict:

@@ -8,6 +8,7 @@ from dataclasses import dataclass, field
 
 from .domain import CONFIRMED, Policy, Reservation, Restaurant, User
 from .history import Entry
+from .series import Series
 
 # An idempotency scope: (user id, method, path, key) (§7).
 Scope = tuple[str, str, str, str]
@@ -42,6 +43,8 @@ class State:
     table_bookings: dict[tuple[str, str], dict[str, Reservation]] = field(default_factory=dict)
     receipts: dict[Scope, Receipt] = field(default_factory=dict)
     history: dict[str, list[Entry]] = field(default_factory=dict)  # per reference, in seq order
+    series: dict[str, Series] = field(default_factory=dict)  # by series id
+    series_by_reference: dict[str, str] = field(default_factory=dict)  # occurrence -> series id
 
     def add_user(self, user: User) -> None:
         self.users[user.id] = user
