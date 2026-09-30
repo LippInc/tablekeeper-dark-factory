@@ -9,7 +9,10 @@ room plan's requirement lines and decisions. The verifier seat is the only write
 | `test_s2_i1_races.py` | S2-I1 races on pairs at 50 in flight and the S1-I7 dense day with 20 declared pairs | recipe S2-2, alone, with nothing else loading the service; `-rP` prints the measured values |
 | `test_s2_i2_upgrade.py` | S2-I2 upgrade: a stage-1 export (sessions, accounts, bookings, receipts of `/reservations` and `/reservation-moves`, a lost response, a failed key) imported into stage 2; a stage-2 export with pairs into a second stage-2 container; invalid imports (D20, E10) | recipe S2-2: needs `--previous-base-url` (the stage-1 service of the same checkout) and `TABLEKEEPER_SECOND_URL` (a second stage-2 container); `-rP` prints how many replays were also byte-identical |
 
-The pytest files use the harness fixtures (`reset`, `api`, `anon`, `base_url`, `previous_api`) and
+| `test_s2_i3_shell.py` | S2-I3 screen routes, header, `current-user`, logout, `auth-error` for login and signup refusals, requests kept on the service, fonts with their licence, type, no sideways scroll or cut-off text at 375 and 1280, visible labels, keyboard focus, R284 colours, claret only for refusals, button width while busy | recipe S2-2 (Playwright in the runner) |
+| `asset_checks.sh` | S2-I3 on the stage folder: the fonts shipped are the fonts the styles use, each font folder holds its OFL `LICENSE`, no off-site URL in styles, scripts or HTML | `bash asset_checks.sh <stage-dir>` |
+
+The pytest files use the harness fixtures (`reset`, `api`, `anon`, `base_url`, `previous_api`, `page`, `tid`) and
 `import fixtures as fx`. This folder holds no `conftest.py`.
 
 ## Stage-1 checks superseded under G6
