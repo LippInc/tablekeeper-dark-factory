@@ -47,12 +47,14 @@ function noAnswer() {
   return notice({ tone: "refused", title: "We could not look up the booking", body: "The restaurant did not answer. Try again in a moment." });
 }
 
-function cancelRefusal({ status, data: { error } }, restaurant) {
+// A refused cancel in words. The cutoff is the booking's own accepted one (an earlier stage's
+// reservation, without terms, has the restaurant's).
+function cancelRefusal({ status, data: { error } }, reservation, restaurant) {
   if (error.code === "cutoff_passed") {
-    const minutes = restaurant.cancellation_cutoff_minutes;
+    const minutes = reservation.accepted_terms?.cancellation_cutoff_minutes ?? restaurant.cancellation_cutoff_minutes;
     return {
       title: "It is too close to the booking to cancel online",
-      body: `Bookings can be cancelled until ${minutes ? `${duration(minutes)} before they start` : "they start"}.`,
+      body: `This booking can be cancelled until ${minutes ? `${duration(minutes)} before it starts` : "it starts"}.`,
     };
   }
   return { title: "We could not cancel this booking", body: refusalWords(status, error).sentence };
@@ -100,7 +102,7 @@ function cancelling(reservation, restaurant, show) {
     }
     // Cancelling twice is not an error, so an unanswered cancel is simply pressed again.
     moment.replaceChildren(answer?.data?.error
-      ? notice({ tone: "refused", testid: "reservation-error", ...cancelRefusal(answer, restaurant) })
+      ? notice({ tone: "refused", testid: "reservation-error", ...cancelRefusal(answer, reservation, restaurant) })
       : notice({
         tone: "uncertain", title: "No reply from the restaurant yet",
         body: "The booking may already be cancelled. Press Cancel booking again to make sure.",

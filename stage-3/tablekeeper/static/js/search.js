@@ -43,6 +43,17 @@ function resultsNotice({ eyebrow, heading, sentence, room, tone, testid, loading
     action);
 }
 
+// The restaurant as the service decides it for the searched date: every table seats what the
+// policy version the service selected (named in each slot's explanation) says, looked up among
+// the published policies. Version 0, or a service without explanations or policies, is the
+// restaurant's own configuration. A lookup, never a selection of our own.
+function roomOn(detail, slots, published) {
+  const version = slots[0]?.explain?.[0]?.policy_version;
+  const policy = published.find((candidate) => candidate.policy_version === version);
+  if (!policy) return detail;
+  return { ...detail, tables: detail.tables.map((table) => ({ ...table, capacity: policy.capacities[table.id] })) };
+}
+
 function searchBand(restaurants) {
   const restaurant = field({
     label: "Restaurant", id: "search-restaurant", "data-testid": "restaurant-select",
@@ -167,12 +178,16 @@ export async function renderSearch(main) {
         sentence: `Checking every table on ${dateInWords(search.date || today())}.`,
       }));
     }
-    const query = new URLSearchParams({ restaurant_id: search.restaurantId, date: search.date, party_size: search.partyText });
+    const query = new URLSearchParams({
+      restaurant_id: search.restaurantId, date: search.date, party_size: search.partyText, explain: "true",
+    });
+    const restaurantPath = `/restaurants/${encodeURIComponent(search.restaurantId)}`;
     const { signal } = inFlight;
     try {
-      const [availability, detail] = await Promise.all([
+      const [availability, detail, policies] = await Promise.all([
         call("GET", `/availability?${query}`, { signal }),
-        call("GET", `/restaurants/${encodeURIComponent(search.restaurantId)}`, { signal }),
+        call("GET", restaurantPath, { signal }),
+        call("GET", `${restaurantPath}/policies`, { signal }),
       ]);
       if (mine !== latest) return;  // a later search owns the results area now
       results.style.minHeight = "";
@@ -180,7 +195,8 @@ export async function renderSearch(main) {
         showFailure(search, searchProblem(availability));
         return;
       }
-      showAnswer(search, detail.data, availability.data.slots);
+      const { slots } = availability.data;
+      showAnswer(search, roomOn(detail.data, slots, policies.status === 200 ? policies.data.policies : []), slots);
     } catch {
       if (mine !== latest) return;
       results.style.minHeight = "";
