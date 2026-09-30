@@ -127,3 +127,53 @@ board: 0; items on the board but not in the record: 0.
   - The only binary files are the 5 supplied fonts.
   - Files outside `stage-*/`, `acceptance/` and `design/` are the operator's setup plus this record.
 - Organizers' structure check `python -m harness check <clone of ac31b64> --track tablekeeper`: `room.json is missing; …` and `1 problem(s)`. The room download is the operator's step at submission.
+
+### Re-packaging of "Stage 2: online booking and combined tables" at fa30051
+
+This supersedes the packaging at 1ec2f58 above for this unit's delivered folder; that entry
+stays as recorded. Packaged commit: `fa300514fa5d79437e30213471c72d673b6be79b` (main). It differs
+from 1ec2f58 in `stage-2/RUN.md` only (`git diff --name-only 1ec2f58 fa30051 -- stage-1 stage-2
+design`). This answers the RUN.md note of the 1ec2f58 packaging. The acceptance checks are those
+at fa30051. Packaging run `tk2-release-clerk-pkg2-0930073357`, 2026-09-30.
+
+| Item | Unit | Commit | Verdict (verifier) | Proving command | Result at packaging |
+|---|---|---|---|---|---|
+| S2-I7 RUN.md for stage 2 | Stage 2: online booking and combined tables | fa300514fa5d79437e30213471c72d673b6be79b | VERIFIED | `bash acceptance/stage-1/container_checks.sh <stage-2> <prefix> <port>` (C4 runs RUN.md's command with only the host port changed); `head -1 stage-2/RUN.md` | 4 passed, 0 failed; `# Running Tablekeeper (stage 2)` |
+
+S2-I1..S2-I6 carry over unchanged from the entries above. At fa30051 the release clerk re-ran
+every proving command listed for them, with the same counts: acceptance stage-1 377 passed;
+stage-2 i1 64 + 4, i2 26, i3 30 with asset checks 3/3, i4 32, i5 30 + 5, i6 20.
+
+Board check: the board (plan v2.35 stage 2) lists 7 items of this unit (S2-I1..S2-I7), all
+`verified`; the record lists 7 items for this unit, all VERIFIED; items in the record but not on
+the board: 0; items on the board but not in the record: 0.
+
+- Delivery layout: as at 1ec2f58, with `stage-2/RUN.md` now titled "(stage 2)". It names the
+  screens `/`, `/signup`, `/login` and `/lookup` and states that fonts, styles, scripts and time
+  zone data are served from the image. Fresh clone: nested `.git` 0, uncommitted or ignored files
+  0, CRLF files 0. `stage-1/` unchanged since ebbdfbd.
+- Gate 1, build, offline start and first unit of work: **PASS**.
+  - The build succeeded from the clean checkout with `docker build --no-cache --pull`.
+  - Healthy 2 s after `docker run` on the internal network, at `--cpus 2 --memory 2g`. Outbound fails: `[Errno 101] Network is unreachable`, and DNS fails with `Temporary failure in name resolution`.
+  - First unit of work, in-network:
+    - The four screens answer 200 `text/html`.
+    - Reset 204, login 200 and availability 200.
+    - Single-table booking 201; combined-table booking 201; replay 200 with an identical body; read 200.
+    - A pair member booked again gives 409 `table_unavailable`.
+    - Every request completed in ≤ 57 ms; memory 60.2 MiB.
+  - Screens at 375 and 1280 (before search, signup, lookup, after search, booked): `no-sideways-scroll`, `offsite requests: 0; problems: 0`. Every css, font and js request went to the service.
+  - Negative controls:
+    - The start that first fetches pypi.org exits (code 1, `URLError … Temporary failure in name resolution`) on the internal network; on the default bridge it is healthy after 1 s.
+    - An off-site font stylesheet added to the shell is flagged: `OFFSITE request https://fonts.googleapis.com/css2?family=Inter` ×6.
+  - Container checks on `stage-2/`: 4 passed, 0 failed. C4 runs the new RUN.md command, `docker build -t tablekeeper . && docker run --rm -e PORT=8080 -p 18601:8080 tablekeeper`: health 200.
+- Checks:
+  - Provided `stage_1` 120 passed and `stage_2` 25 passed.
+  - Acceptance stage-1 and stage-2, file by file: all passed, 0 failed.
+  - Harness `--repo <clone of fa30051> --stage 2 --mode isolated`: `stage 1: pass` (120), `stage 2: pass` (25), `stage 3: fail` (1 failed), `highest contiguous stage: 2`, `claimed stage: 2 on the shipped checks`, overshoot None, revision fa30051. The same result in host mode.
+- Reverse check (the full `stage_3` suite): 6 failed, 1 passed, 0 errors. Every failure is stage-3 behaviour: policies 404, `explain` missing ×2, history 404 ×2, recurring agreement 404.
+- Gate 2, no credentials, private data or unrelated files: **PASS**.
+  - gitleaks v8.30.1: history of 46 commits, and the tree: `no leaks found`.
+  - Negative control: a fake `ghp_` token planted in a scratch copy is reported (`github-pat`, `leaks found: 1`).
+  - Private data: 0 user-home paths; no email addresses beyond `example.com`, the seat addresses and the operator's noreply. Key, `.env` and database files: 0.
+  - The only binary files are the 5 supplied fonts.
+- Organizers' structure check on a clone of fa30051: `room.json is missing; …` and `1 problem(s)` (rc 1). This is the operator's step at submission.
