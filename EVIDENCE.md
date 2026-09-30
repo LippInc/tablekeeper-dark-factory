@@ -177,3 +177,72 @@ the board: 0; items on the board but not in the record: 0.
   - Private data: 0 user-home paths; no email addresses beyond `example.com`, the seat addresses and the operator's noreply. Key, `.env` and database files: 0.
   - The only binary files are the 5 supplied fonts.
 - Organizers' structure check on a clone of fa30051: `room.json is missing; …` and `1 problem(s)` (rc 1). This is the operator's step at submission.
+
+## Unit "Stage 3: booking policies, history and recurring reservations"
+
+Packaged commit: `c8cb447611c321f7e0d1975f175c9a4d08e5c40e`. Acceptance checks at
+`4dd4239df4ce81c2b6d34ea487002b21f237bd38` (main); every commit after c8cb447 touches
+`acceptance/stage-3/` only. Design system `design/DESIGN.md` at 917186b, the same as at c8cb447.
+Packaging run `tk2-release-clerk-pkg3-0930124733`, 2026-09-30.
+
+The checks run against the stage-3 service with the stage-2 and stage-1 services of the same
+checkout beside it. `--previous-base-url` is the stage-1 service for the stage-1 and stage-2
+suites and folders, and the stage-2 service for stage 3 (RC3-1). The environment gives
+`TABLEKEEPER_STAGE1_URL`, `TABLEKEEPER_STAGE2_URL` and `TABLEKEEPER_SECOND_URL` (a second
+stage-3). Each file runs alone. The 7 checks superseded under H8 are deselected with
+`--deselect <node id>` as listed in `acceptance/stage-3/README.md`.
+
+| Item | Unit | Commit | Verdict (verifier; designer on the screen item) | Proving command | Result at packaging |
+|---|---|---|---|---|---|
+| S3-I1 Carry forward, dated policies, accepted terms and revisions | Stage 3: booking policies, history and recurring reservations | 388df81323b852b01ad17bc28c50abef7d08b005 (copy 462fce3, item f1e7437) | VERIFIED (acceptance 5bcc80f, 3df5421) | `pytest /acc/stage-3/test_s3_i1_policies.py`, `test_s3_i1_terms.py`, `test_s3_i1_races.py`, `test_s3_i1_upgrade.py`; every `/acc/stage-1` and `/acc/stage-2` file with the H8 deselections | 59; 27; 4; 6 passed; stage-1 376 passed + 1 deselected; stage-2 205 passed + 6 deselected |
+| S3-I2 Availability explanations | Stage 3: booking policies, history and recurring reservations | c8cb447611c321f7e0d1975f175c9a4d08e5c40e | VERIFIED at aa5478f, then REFUTED by F1 (a dense explain burst of 5.00–6.93 s against the 5 s per-request limit), VERIFIED at c8cb447 (acceptance c200b91, 4dd4239) | `pytest /acc/stage-3/test_s3_i2_explain.py`, `test_s3_i2_dense.py`, `test_s3_i2_reuse.py` | 18; 4; 8 passed. Slowest in the dense bursts (`-rA`): explained different 3.36 s, explained identical 1.05 s, plain different 1.32 s, plain identical 0.18 s |
+| S3-I3 Reservation history | Stage 3: booking policies, history and recurring reservations | 117e7d96a72173f028c1fca98c1f3c8ba46c402e | VERIFIED (acceptance 30f8375) | `pytest /acc/stage-3/test_s3_i3_history.py` | 13 passed |
+| S3-I4 Recurring reservations | Stage 3: booking policies, history and recurring reservations | f43c7b77f4e6b7d20cb486870648cd86a9145139 | VERIFIED (acceptance 22703d5) | `pytest /acc/stage-3/test_s3_i4_series.py`, `test_s3_i4_races.py` | 35; 2 passed |
+| S3-I5 Export and import across stages 1–3 | Stage 3: booking policies, history and recurring reservations | f43c7b77f4e6b7d20cb486870648cd86a9145139 (an empty-diff item) | VERIFIED (acceptance 8db147c) | `pytest /acc/stage-3/test_s3_i5_import.py` | 21 passed |
+| S3-I6 Screens follow the selected policy | Stage 3: booking policies, history and recurring reservations | e3d0caf9530ace17740c4c400244f600235b8757 | VERIFIED + APPROVED (acceptance e5cd316) | `pytest /acc/stage-3/test_s3_i6_screens.py` | 17 passed |
+
+Board check: the board (plan v2.18 stage 3, "Board and commits") lists 6 items of this unit,
+all `verified`; the record lists 6 items, all VERIFIED; items in the record but not on the
+board: 0; items on the board but not in the record: 0.
+
+### Packaging of "Stage 3: booking policies, history and recurring reservations" at c8cb447
+
+- Delivery layout (task: `stage-3\` is a copy of `stage-2\` carried forward, with the service
+  source, a Dockerfile and RUN.md, no nested .git):
+  - `stage-3/` holds 46 files: Dockerfile, `RUN.md` titled "# Running Tablekeeper (stage 3)",
+    requirements.txt and `tablekeeper/` with `static/`. Its 5 woff2 fonts and 2 OFL `LICENSE`
+    files are byte-identical to the task's supplied fonts.
+  - Fresh clone: nested `.git` 0, uncommitted or ignored files 0, CRLF files 0.
+  - `stage-1/` unchanged since ebbdfbd and `stage-2/` unchanged since fa30051.
+- Gate 1, build, offline start and first unit of work: **PASS**.
+  - The build succeeded from the clean checkout with `docker build --no-cache --pull`.
+  - Healthy 2 s after `docker run` on the internal network, at `--cpus 2 --memory 2g`. Outbound fails: `[Errno 101] Network is unreachable`, and DNS fails with `Temporary failure in name resolution`.
+  - First unit of work, in-network:
+    - The four screens answer 200 `text/html`.
+    - Reset 204, login 200 and availability 200.
+    - Single-table booking 201; combined-table booking 201 at revision 1 under policy 0; replay 200 with an identical body; read 200.
+    - A pair member booked again gives 409 `table_unavailable`.
+    - `explain=true` 200 with 3 tables per slot; history 200 (`created`); decision 200; public policies 200 (`[]`).
+    - Every request completed in ≤ 59 ms; memory 60.4 MiB.
+  - Screens at 375 and 1280 (before search, signup, lookup, after search, booked): `no-sideways-scroll`, `offsite requests: 0; problems: 0`. Every css, font and js request went to the service.
+  - Negative controls:
+    - The start that first fetches pypi.org exits (code 1, `URLError … Temporary failure in name resolution`) on the internal network; on the default bridge it is healthy after 1 s.
+    - An off-site font stylesheet added to the shell is flagged: `OFFSITE request https://fonts.googleapis.com/css2?family=Inter` ×6.
+  - Container checks on `stage-3/`: 4 passed, 0 failed, including RUN.md's command with only the host port changed. Asset checks: 3 passed, 0 failed.
+- Checks:
+  - Provided `stage_1` 120, `stage_2` 25 and `stage_3` 7 passed.
+  - Acceptance stage-1, stage-2 and stage-3, file by file: all passed, 0 failed; 7 deselected under H8, exactly the 7 listed.
+  - Harness `--repo <clone of c8cb447> --stage 3 --mode isolated`:
+    - `stage 1: pass` (120), `stage 2: pass` (25), `stage 3: pass` (7), `stage 4: fail` (1 failed, 4 passed under `-x`).
+    - `highest contiguous stage: 3`, `claimed stage: 3 on the shipped checks`, overshoot None, revision c8cb447.
+    - Upgrade sources: 2 from stage-1, 3 from stage-2, 4 from stage-3.
+    - The same result in host mode.
+- Reverse check (the full `stage_4` suite, previous = a second stage-3 container): 2 failed, 4 passed, 0 errors.
+  - Failing: `test_series_clock_time_can_be_changed` (`assert 404 == 201`) and `test_a_closure_preview_returns_a_plan` (`POST /restaurants/r_anker/replans -> 404`). Both are stage-4 behaviour.
+  - The 4 passing checks (`available_options` order, a declared pair, `table_id` as a set of one, non-transitive combining) re-check stage-2 behaviour.
+- Gate 2, no credentials, private data or unrelated files: **PASS**.
+  - gitleaks v8.30.1: history of 64 commits, and the tree: `no leaks found`.
+  - Negative control: a fake `ghp_` token planted in a scratch copy of `stage-3` is reported (`github-pat`, `leaks found: 1`).
+  - Private data: 0 user-home paths; no email addresses beyond `example.com`, the seat addresses and the operator's noreply. Key, `.env` and database files: 0.
+  - The only binary files are the 10 supplied fonts (5 in `stage-2`, 5 in `stage-3`).
+- Organizers' structure check on a clone of 4dd4239: `room.json is missing; …` and `1 problem(s)` (rc 1). This is the operator's step at submission.
