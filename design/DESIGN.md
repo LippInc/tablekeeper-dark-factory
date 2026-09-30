@@ -126,6 +126,7 @@ The fixture holds only ids, a restaurant name and time zone, table labels and ca
 - **Dates:** in words, `Weekday D Month`, for example **Wednesday 7 October**; add the year only when it is not the current year (**Friday 8 January 2027**). The date input keeps its `YYYY-MM-DD` value; only text we write is in words.
 - **Times:** 24-hour `HH:MM` with a leading zero (**09:00**, **18:30**), exactly as in the slot grid, always the restaurant's local time.
 - **Party size:** in words from one to twelve ("for four"), digits above ("for 14").
+- **Line breaks:** "seats N" never splits: write it with a no-break space (U+00A0) between "seats" and the number, so a narrow name column breaks after the comma ("Medium table, / seats 4"). Every text block that can wrap (row and panel descriptions, ledes, notice titles and bodies, results-notice sentences) sets `text-wrap: pretty` so no line ends with a single orphaned word ("…for up / to six", not "…for up to / six").
 - **Never shown:** table ids (`t_1`), restaurant ids (`r_anker`), user or reservation ids, raw API codes, ISO timestamps. The booking **reference** is shown, because the diner needs it; it is written exactly as the service returns it, with no separators or spaces added (the hyphen in the reference picture is a placeholder).
 
 ---
@@ -186,7 +187,7 @@ Shown directly above the rows whenever the grid is shown. Three items, Hanken 14
 ### 3.6 Table row (the hero)
 
 - Rows are separated by a 1 px `--tk-rule` top hairline; padding 14 px 0.
-- **Name block:** the small floor-plan drawing in a **72 × 40 px** box (drawing scaled to fit, left-aligned, vertically centred), then 12 px, then the table or pair name (Hanken 17/600 linen) over its description (Hanken 14 `--tk-text-2`, "Medium table, seats 4" / "Joined pair, seats 6").
+- **Name block:** the small floor-plan drawing in a **72 × 40 px** box (drawing scaled to fit, left-aligned, vertically centred), then 12 px, then the table or pair name (Hanken 17/600 linen) over its description (Hanken 14 `--tk-text-2`, "Medium table, seats 4" / "Joined pair, seats 6"; "seats N" kept on one line, section 2).
 - **Times:** one cell per slot of the day, in time order.
   - Inline rows (≥ 1200 px): name block column 220 px, gap 16, times `repeat(auto-fill, minmax(60px, 1fr))`, gap 4. With the usual eight slots that is one line of eight.
   - Stacked rows (720–1199 px): name block on top, 12 px, then times in `repeat(auto-fill, minmax(60px, 1fr))`, gap 4 (eight across at every width in this band).
