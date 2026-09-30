@@ -1,0 +1,231 @@
+"""Reading stored records: accounts, restaurants and reservations (§3.4, §4).
+
+A reset fixture and an imported snapshot hold the same records in nearly the same shape.
+`Records` reads them the same way for both, keeps IDs, emails and references unique, and
+checks that every reference between records resolves. Problems are recorded on the
+`FieldReader`; nothing is raised here.
+"""
+from __future__ import annotations
+
+import re
+from dataclasses import dataclass
+from datetime import datetime
+from itertools import accumulate, pairwise
+
+from . import timeutil
+from .auth import read_identity
+from .domain import (CANCELLED, CONFIRMED, WEEKDAYS, OpeningHours, Policy, Reservation,
+                     Restaurant, Table, read_party_size, read_table_ids, select_tables)
+from .errors import ApiError
+from .fields import FieldReader, at
+from .store import email_key
+
+REFERENCE = re.compile(r"[A-Z0-9]{6,12}")
+STATUSES = (CONFIRMED, CANCELLED)
+
+
+@dataclass(frozen=True)
+class Account:
+    id: str
+    email: str
+    display_name: str
+
+
+@dataclass(frozen=True)
+class Booking:
+    """A reservation record's fields other than its start and creation time."""
+    id: str
+    reference: str
+    user_id: str
+    restaurant: Restaurant
+    table_ids: tuple[str, ...]
+    party_size: int
+    status: str
+
+    def reservation(self, starts_at: datetime, created_at: datetime, *, revision: int = 1,
+                    terms: Policy | None = None) -> Reservation:
+        """The booking as a reservation; a seeded one stands at revision 1 under policy 0."""
+        return Reservation(id=self.id, reference=self.reference, user_id=self.user_id,
+                           restaurant_id=self.restaurant.id, table_ids=self.table_ids,
+                           party_size=self.party_size, starts_at=starts_at, status=self.status,
+                           created_at=created_at, revision=revision,
+                           terms=terms or self.restaurant.initial)
+
+
+def read_opening_hours(reader: FieldReader, obj: dict, path: str) -> tuple[OpeningHours, ...]:
+    """Opening hours in the order given. A weekday may have several entries, which must not
+    overlap one another; entries that only touch are allowed."""
+    entries: list[OpeningHours] = []
+    for where, item in reader.objects(obj, "opening_hours", path):
+        weekday = reader.read(item, "weekday", "string", where)
+        opens, closes = (reader.parsed(item, name, where, timeutil.parse_hhmm,
+                                       "must be a 24-hour HH:MM time")
+                         for name in ("opens", "closes"))
+        if weekday is not None and weekday not in WEEKDAYS:
+            reader.reject(at(where, "weekday"), f"must be one of {' '.join(WEEKDAYS)}")
+        elif opens is not None and closes is not None and closes <= opens:
+            reader.reject(at(where, "closes"), "must be later than opens on the same day")
+        elif None not in (weekday, opens, closes):
+            entries.append(OpeningHours(weekday, opens, closes))
+    for weekday in WEEKDAYS:
+        day = sorted((e for e in entries if e.weekday == weekday), key=lambda e: e.opens)
+        if any(later.opens < earlier.closes for earlier, later in pairwise(day)):
+            reader.reject(at(path, "opening_hours"), f"has overlapping entries on {weekday}")
+    return tuple(entries)
+
+
+class Records:
+    def __init__(self, reader: FieldReader) -> None:
+        self.reader = reader
+        self.user_ids: set[str] = set()
+        self.restaurants: dict[str, Restaurant] = {}
+        self._emails: set[str] = set()
+        self._reservation_ids: set[str] = set()
+        self._references: set[str] = set()
+
+    def account(self, item: dict, path: str) -> Account | None:
+        reader = self.reader
+        user_id = reader.identifier(item, "id", path)
+        email, display_name = read_identity(reader, item, path)
+        if user_id in self.user_ids:
+            reader.reject(at(path, "id"), "is not unique")
+        elif email is not None and email_key(email) in self._emails:
+            reader.reject(at(path, "email"), "is not unique")
+        elif None not in (user_id, email, display_name):
+            self.user_ids.add(user_id)
+            self._emails.add(email_key(email))
+            return Account(user_id, email, display_name)
+        return None
+
+    def restaurant(self, item: dict, path: str) -> Restaurant | None:
+        reader = self.reader
+        restaurant_id = reader.identifier(item, "id", path)
+        name = reader.read(item, "name", "string", path)
+        timezone = reader.read(item, "timezone", "string", path)
+        if timezone is not None and timeutil.zone(timezone) is None:
+            reader.reject(at(path, "timezone"), "is not an IANA time zone")
+            timezone = None
+        slot = reader.integer(item, "slot_minutes", path, minimum=1, maximum=timeutil.MAX_MINUTES)
+        duration = reader.integer(item, "reservation_duration_minutes", path,
+                                  minimum=1, maximum=timeutil.MAX_MINUTES)
+        cutoff = reader.integer(item, "cancellation_cutoff_minutes", path,
+                                minimum=0, maximum=timeutil.MAX_MINUTES)
+        hours = read_opening_hours(reader, item, path)
+        tables, capacities = self._tables(item, path)
+        combinable = self._combinable(item, path, {table.id for table in tables})
+        managers = self._managers(item, path)
+        if restaurant_id in self.restaurants:
+            reader.reject(at(path, "id"), "is not unique")
+        elif None not in (restaurant_id, name, timezone, slot, duration, cutoff):
+            initial = Policy(version=0, effective_from=None, slot_minutes=slot,
+                             reservation_duration_minutes=duration,
+                             cancellation_cutoff_minutes=cutoff, opening_hours=hours,
+                             capacities=capacities)
+            self.restaurants[restaurant_id] = Restaurant(
+                id=restaurant_id, name=name, timezone=timezone, initial=initial, tables=tables,
+                combinable=combinable, manager_user_ids=managers)
+            return self.restaurants[restaurant_id]
+        return None
+
+    def _tables(self, restaurant: dict, path: str) -> tuple[tuple[Table, ...], dict[str, int]]:
+        """The tables in fixture order, and the capacity of each."""
+        reader = self.reader
+        tables: dict[str, Table] = {}
+        capacities: dict[str, int] = {}
+        for where, item in reader.objects(restaurant, "tables", path):
+            table_id = reader.identifier(item, "id", where)
+            label = reader.read(item, "label", "string", where)
+            capacity = reader.integer(item, "capacity", where, minimum=1)
+            if table_id in tables:
+                reader.reject(at(where, "id"), "is not unique within its restaurant")
+            elif None not in (table_id, label, capacity):
+                tables[table_id] = Table(table_id, label)
+                capacities[table_id] = capacity
+        return tuple(tables.values()), capacities
+
+    def _managers(self, restaurant: dict, path: str) -> tuple[str, ...]:
+        """The users who may publish the restaurant's policies (P6): known user ids, each
+        once. Absent means none."""
+        reader = self.reader
+        where = at(path, "manager_user_ids")
+        listed = reader.read(restaurant, "manager_user_ids", "array", path, required=False) or []
+        managers = reader.strings(listed, where) or []
+        if not set(managers) <= self.user_ids:
+            reader.reject(where, "must name known users")
+        elif len(set(managers)) != len(managers):
+            reader.reject(where, "must not name a user twice")
+        return tuple(managers)
+
+    def _combinable(self, restaurant: dict, path: str,
+                    table_ids: set[str]) -> tuple[tuple[str, str], ...]:
+        """The declared pairs (E4): each two distinct tables of this restaurant, no pair
+        declared twice in either order. Absent means none."""
+        reader = self.reader
+        where = at(path, "combinable")
+        pairs: dict[frozenset[str], tuple[str, str]] = {}
+        listed = reader.read(restaurant, "combinable", "array", path, required=False) or []
+        for place, pair in reader.elements(listed, "array", where):
+            members = reader.strings(pair, place)
+            if members is None:
+                continue
+            if len(members) != 2 or members[0] == members[1]:
+                reader.reject(place, "must name two different tables")
+            elif not set(members) <= table_ids:
+                reader.reject(place, "must name tables of this restaurant")
+            elif frozenset(members) in pairs:
+                reader.reject(place, "repeats an earlier pair")
+            else:
+                pairs[frozenset(members)] = (members[0], members[1])
+        return tuple(pairs.values())
+
+    def booking(self, item: dict, path: str) -> Booking | None:
+        """A reservation record's identity, owner, restaurant, table set, party and status
+        (absent means confirmed)."""
+        reader = self.reader
+        reservation_id = reader.identifier(item, "id", path)
+        reference = reader.read(item, "reference", "string", path)
+        user_id = reader.identifier(item, "user_id", path)
+        restaurant_id = reader.identifier(item, "restaurant_id", path)
+        table_ids = read_table_ids(reader, item, path, required=True)
+        party_size = read_party_size(reader, item, path)
+        status = reader.read(item, "status", "string", path) if "status" in item else CONFIRMED
+        restaurant = self.restaurants.get(restaurant_id)
+        if reservation_id in self._reservation_ids:
+            reader.reject(at(path, "id"), "is not unique")
+        elif reference is not None and not REFERENCE.fullmatch(reference):
+            reader.reject(at(path, "reference"), "must be 6 to 12 characters of A-Z0-9")
+        elif reference in self._references:
+            reader.reject(at(path, "reference"), "is not unique")
+        elif user_id is not None and user_id not in self.user_ids:
+            reader.reject(at(path, "user_id"), "is not a known user")
+        elif restaurant_id is not None and restaurant is None:
+            reader.reject(at(path, "restaurant_id"), "is not a known restaurant")
+        elif status not in STATUSES:
+            reader.reject(at(path, "status"), f"must be one of {', '.join(STATUSES)}")
+        elif None not in (reservation_id, reference, user_id, restaurant, table_ids, party_size):
+            try:
+                table_ids = tuple(t.id for t in select_tables(restaurant, table_ids))
+            except ApiError as problem:
+                reader.reject(at(path, "table_ids"), problem.message)
+                return None
+            self._reservation_ids.add(reservation_id)
+            self._references.add(reference)
+            return Booking(reservation_id, reference, user_id, restaurant, table_ids,
+                           party_size, status)
+        return None
+
+    def reject_overlaps(self, reservations: list[Reservation]) -> None:
+        """No two confirmed bookings may hold one table at overlapping times (§1)."""
+        by_table: dict[tuple[str, str], list[Reservation]] = {}
+        for reservation in reservations:
+            if reservation.status == CONFIRMED:
+                for table_id in reservation.table_ids:
+                    key = (reservation.restaurant_id, table_id)
+                    by_table.setdefault(key, []).append(reservation)
+        for (restaurant_id, table_id), booked in by_table.items():
+            booked.sort(key=lambda r: r.starts_at)
+            # Each booking lasts its own accepted duration, so any earlier one may still run.
+            latest_ends = accumulate((r.ends_at for r in booked), max)
+            if any(later.starts_at < end for later, end in zip(booked[1:], latest_ends)):
+                self.reader.reject("reservations",
+                                   f"overlap on table {table_id!r} of {restaurant_id!r}")
