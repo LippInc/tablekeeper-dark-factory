@@ -111,7 +111,14 @@ def wall_time(instant: datetime, tz: ZoneInfo) -> datetime:
 
 def local_text(instant: datetime, tz: ZoneInfo) -> str:
     """`instant` as the bare local `YYYY-MM-DDTHH:MM` at `tz`."""
-    return wall_time(instant, tz).isoformat(timespec="minutes")
+    return stamps(instant, tz)[0]
+
+
+def stamps(instant: datetime, tz: ZoneInfo) -> tuple[str, str]:
+    """`instant` at `tz` both ways, from one conversion: the bare local `YYYY-MM-DDTHH:MM` (the
+    RFC 3339 text's date, hours and minutes) and the RFC 3339 text."""
+    text = rfc3339(instant, tz)
+    return text[:16], text
 
 
 def hhmm(value: time) -> str:

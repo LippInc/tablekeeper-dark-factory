@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import json
 from collections.abc import Callable
+from json.encoder import encode_basestring_ascii
 from typing import Any
 
 from starlette.applications import Starlette
@@ -35,26 +36,33 @@ class JsonResponse(JSONResponse):
 
 
 class AvailabilityResponse(JsonResponse):
-    """An availability answer, the same JSON as any other. With explanations it holds every
-    table at every slot, each one of a few shared entries (a table free or taken), so each
-    entry is encoded once and its text reused: a dense day stays within the request budget."""
+    """An availability answer, the same JSON as any other. Its slots share their lists of
+    free tables, options and explanations with every slot held alike, and every explanation
+    is one of two entries per table (`schedule.availability`), so each shared list and entry
+    is encoded once, by identity, and its text reused: a dense day stays within the request
+    budget whichever questions are asked together (made in a worker thread, `Store.in_thread`,
+    while the event loop sends the answers already made)."""
 
     def render(self, content: Any) -> bytes:
-        encoded: dict[int, str] = {}
+        encoded: dict[int, bytes] = {}
 
-        def entry(value: dict) -> str:
+        def text(value: Any) -> bytes:
+            if isinstance(value, str):
+                return encode_basestring_ascii(value).encode("ascii")
             if id(value) not in encoded:
-                encoded[id(value)] = _encode(value)
+                encoded[id(value)] = (b"[" + b",".join(map(text, value)) + b"]" if isinstance(value, list)
+                                      else _encode(value).encode("ascii"))
             return encoded[id(value)]
 
-        slots = []
-        for slot in content["slots"]:
-            text = _encode({name: value for name, value in slot.items() if name != "explain"})
-            if "explain" in slot:
-                text = f'{text[:-1]},"explain":[{",".join(map(entry, slot["explain"]))}]}}'
-            slots.append(text)
         head = _encode({name: value for name, value in content.items() if name != "slots"})
-        return f'{head[:-1]},"slots":[{",".join(slots)}]}}'.encode("ascii")
+        pieces = [head[:-1].encode("ascii"), b',"slots":[']
+        for index, slot in enumerate(content["slots"]):
+            pieces.append(b",{" if index else b"{")
+            for position, (name, value) in enumerate(slot.items()):
+                pieces += (b"," if position else b"", text(name), b":", text(value))
+            pieces.append(b"}")
+        pieces.append(b"]}")
+        return b"".join(pieces)
 
 
 def _reject_constant(name: str) -> None:
@@ -186,10 +194,12 @@ async def get_availability(request: Request) -> Response:
     party_size = reader.integer_param(request.query_params, "party_size", minimum=1)
     explain = reader.flag_param(request.query_params, "explain")
     reader.raise_first()
-    async with _store(request).transaction() as state:
+    store = _store(request)
+    async with store.transaction() as state:
         restaurant = domain.find_restaurant(state, restaurant_id)
-        body = state.answer(restaurant.id, ("availability", restaurant.id, day, party_size, explain), lambda: AvailabilityResponse(
-            schedule.availability(state, restaurant, day, party_size, explain=explain)).body)
+        body = await store.in_thread(lambda: state.answer(
+            restaurant.id, ("availability", restaurant.id, day, party_size, explain),
+            lambda: AvailabilityResponse(schedule.availability(state, restaurant, day, party_size, explain=explain)).body))
         return Response(body, media_type=AvailabilityResponse.media_type)
 
 

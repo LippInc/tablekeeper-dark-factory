@@ -5,7 +5,7 @@ import asyncio
 from collections.abc import AsyncIterator, Callable, Container, Hashable, Iterable
 from contextlib import asynccontextmanager
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, TypeVar
 
 from .domain import CONFIRMED, Closure, Policy, Reservation, Restaurant, User
 from .history import Entry
@@ -16,6 +16,8 @@ if TYPE_CHECKING:
 
 # An idempotency scope: (user id, method, path, key) (§7).
 Scope = tuple[str, str, str, str]
+
+T = TypeVar("T")
 
 MAX_ANSWERS = 16  # rendered answers kept at their restaurants' current revisions
 
@@ -129,8 +131,8 @@ class Store:
     """The current State and the one lock over it.
 
     A request reads, decides and writes inside a single `transaction()` and never
-    awaits inside it, so requests take effect one at a time. Slow work (password
-    hashing) happens before or after, outside the lock.
+    awaits inside it but for `in_thread`, which keeps the lock, so requests take effect one
+    at a time. Slow work (password hashing) happens before or after, outside the lock.
     """
 
     def __init__(self) -> None:
@@ -141,6 +143,19 @@ class Store:
     async def transaction(self) -> AsyncIterator[State]:
         async with self._lock:
             yield self._state
+
+    @staticmethod
+    async def in_thread(work: Callable[[], T]) -> T:
+        """`work` (heavy, reading the state) done in a worker thread while the caller's
+        transaction keeps the lock, so the event loop goes on sending the answers already
+        made meanwhile. The lock is not given up before `work` ends, even if the request is
+        cancelled, so no write can change the state under it."""
+        done = asyncio.ensure_future(asyncio.to_thread(work))
+        try:
+            return await asyncio.shield(done)
+        except asyncio.CancelledError:
+            await asyncio.wait([done])
+            raise
 
     async def replace(self, state: State) -> None:
         """Swap in a fully built state in one step (reset)."""
