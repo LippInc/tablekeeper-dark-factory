@@ -15,10 +15,12 @@ def _schema_1_to_2(state: dict) -> dict:
     """Stage 2 adds combined tables: a reservation's `table_id` becomes the set
     `table_ids`, and a restaurant declares its `combinable` pairs (none before)."""
     def reservation(record: Any) -> Any:
-        if not isinstance(record, dict) or "table_id" not in record:
+        # Schema 1 knows only table_id; a table_ids field there is unknown and ignored (E10),
+        # so a record without table_id stays without a table and is refused.
+        if not isinstance(record, dict):
             return record
-        moved = {name: value for name, value in record.items() if name != "table_id"}
-        return {**moved, "table_ids": [record["table_id"]]}
+        moved = {name: value for name, value in record.items() if name not in ("table_id", "table_ids")}
+        return {**moved, "table_ids": [record["table_id"]]} if "table_id" in record else moved
 
     def restaurant(record: Any) -> Any:
         return {**record, "combinable": []} if isinstance(record, dict) else record
