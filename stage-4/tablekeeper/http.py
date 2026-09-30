@@ -255,6 +255,12 @@ async def adopt_series(request: Request) -> Response:
     return await _keyed_write(request, booking.adopt)
 
 
+async def amend_series(request: Request) -> Response:
+    series_id = request.path_params["series_id"]
+    return await _keyed_write(request, lambda state, user, body: booking.amend_series(
+        state, user, series_id, body))
+
+
 async def get_series(request: Request) -> Response:
     """Owner only; anyone else, signed in or not, gets 404."""
     async with _store(request).transaction() as state:
@@ -312,6 +318,7 @@ ROUTES = [
     Route("/reservation-moves", move_reservations, methods=["POST"]),
     Route("/series", adopt_series, methods=["POST"]),
     Route("/series/{series_id}", get_series, methods=["GET"]),
+    Route("/series/{series_id}/amend", amend_series, methods=["POST"]),
 ]
 
 

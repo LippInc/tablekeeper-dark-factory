@@ -5,7 +5,8 @@ policy as its accepted terms: its duration and its cancellation cutoff. Every ch
 through `apply` in two phases (H2): the first checks the resulting bookings for overlaps,
 each for its own duration, and the second alone stores them, all or none, one revision
 further on, with their history and their series' effects. A booking adopted as a series
-anchor generates the series' later occurrences.
+anchor generates the series' later occurrences, whose clock time the series' owner can then
+change together.
 """
 from __future__ import annotations
 
@@ -132,10 +133,12 @@ def _check_free(state: State, bookings: list[Reservation]) -> None:
                 raise ApiError(409, "table_unavailable", "a table is taken at that time")
 
 
-def apply(state: State, bookings: list[Reservation], closure: Closure | None = None) -> list[Reservation]:
+def apply(state: State, bookings: list[Reservation], closure: Closure | None = None, *,
+          whole_series: bool = False) -> list[Reservation]:
     """Store `bookings` together, all or none: new bookings, or new versions of existing
     ones. Returns the stored bookings in the same order. With a `closure` the operation is a
-    seating repair: an applied plan's moved bookings and the closure it records.
+    seating repair: an applied plan's moved bookings and the closure it records. A repair,
+    like an amendment of a `whole_series`, marks no occurrence an exception.
 
     A version equal to the stored booking is a no-op and is left as it is. Phase one checks
     the changed versions' occupancy (`_check_free`). Phase two alone changes the state: each
@@ -157,7 +160,7 @@ def apply(state: State, bookings: list[Reservation], closure: Closure | None = N
         history.record(state, previous, version, at, plan_id)
         changes.append((previous, version))
         stored[version.reference] = version
-    series.record(state, changes, repair=closure is not None)
+    series.record(state, changes, marks_exceptions=closure is None and not whole_series)
     restaurant_ids = [booking.restaurant_id for booking in changed]
     if closure is not None:
         state.closures.setdefault(closure.restaurant_id, []).append(closure)
@@ -229,6 +232,36 @@ def adopt(state: State, user: User, body: dict) -> dict:
                           for index, booking in enumerate([anchor, *occurrences])))
     series.add(state, adopted)
     return series.view(state, adopted)
+
+
+def amend_series(state: State, user: User, series_id: str, body: dict) -> dict:
+    """Move the series' occurrences from `from_index` on, but cancelled ones and exceptions,
+    to `local_time` on their scheduled dates, all or none (Q18 order after the keyed write's
+    own checks: 404, 422 fields, 409 stale_revision, then per occurrence in index order what a
+    PATCH checks - the old accepted cutoff, the rules of the new date's policy - and last the
+    occupancy of the whole changed set). An occurrence already at that time is left as it is.
+    A scheduled date is the one an occurrence was adopted on; one that is not an exception
+    still has it (Q19)."""
+    adopted = series.own_series(state, user, series_id)
+    reader = FieldReader()
+    expected_revision = reader.integer(body, "expected_revision", "", minimum=1)
+    from_index = reader.integer(body, "from_index", "", minimum=0, maximum=len(adopted.occurrences) - 1)
+    clock = reader.parsed(body, "local_time", "", timeutil.parse_hhmm, "must be a 24-hour time HH:MM")
+    reader.raise_as_invalid()
+    if expected_revision != adopted.revision:
+        raise ApiError(409, "stale_revision", "the series has changed since that revision")
+    zone = state.restaurants[state.reservations[adopted.occurrences[0].reference].restaurant_id].zone
+    changed = []
+    for occurrence in adopted.occurrences[from_index:]:
+        current = state.reservations[occurrence.reference]
+        if occurrence.exception or current.status == CANCELLED:
+            continue
+        starts = timeutil.wall_time(current.starts_at, zone)
+        local = datetime.combine(starts.date(), clock)
+        if local != starts:
+            changed.append(amended(state, current, Changes(local=local), reader, None))
+    apply(state, changed, whole_series=True)
+    return series.view(state, state.series[adopted.id])
 
 
 def amend(state: State, user: User, reference: str, body: dict) -> dict:
