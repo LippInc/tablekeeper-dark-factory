@@ -11,7 +11,7 @@ from datetime import date
 from . import timeutil
 from .domain import Policy, Restaurant, User, find_restaurant, published_policy
 from .errors import ApiError
-from .fields import FieldReader
+from .fields import FieldReader, at
 from .records import read_opening_hours
 from .store import State
 
@@ -43,41 +43,48 @@ def publish(state: State, user: User, restaurant_id: str, body: dict) -> dict:
     if user.id not in restaurant.manager_user_ids:
         raise ApiError(403, "forbidden", "only the restaurant's managers may publish policies")
     published = state.policies.setdefault(restaurant.id, [])
-    policy = _read_policy(body, restaurant, version=len(published) + 1)
+    reader = FieldReader()
+    policy = read_policy(reader, body, "", restaurant, version=len(published) + 1)
+    reader.raise_as_invalid()
     published.append(policy)
     return published_policy(policy)
 
 
-def _read_policy(body: dict, restaurant: Restaurant, version: int) -> Policy:
-    """Every field is required, and any problem with one is 422 (P1)."""
-    reader = FieldReader()
-    effective_from = reader.parsed(body, "effective_from", "", timeutil.parse_date,
+def read_policy(reader: FieldReader, obj: dict, path: str, restaurant: Restaurant,
+                version: int) -> Policy | None:
+    """A complete policy for `restaurant` (P1, P7): every field required, in range, and no
+    weekday twice. Problems are recorded on `reader`; None when there is one."""
+    effective_from = reader.parsed(obj, "effective_from", path, timeutil.parse_date,
                                    "must be a calendar date YYYY-MM-DD")
-    slot = reader.integer(body, "slot_minutes", "", minimum=1, maximum=MAX_STEP_MINUTES)
-    duration = reader.integer(body, "reservation_duration_minutes", "", minimum=1,
+    slot = reader.integer(obj, "slot_minutes", path, minimum=1, maximum=MAX_STEP_MINUTES)
+    duration = reader.integer(obj, "reservation_duration_minutes", path, minimum=1,
                               maximum=MAX_STEP_MINUTES)
-    cutoff = reader.integer(body, "cancellation_cutoff_minutes", "", minimum=0,
+    cutoff = reader.integer(obj, "cancellation_cutoff_minutes", path, minimum=0,
                             maximum=MAX_CUTOFF_MINUTES)
-    hours = read_opening_hours(reader, body, "")
+    hours = read_opening_hours(reader, obj, path)
     weekdays = [entry.weekday for entry in hours]
     if len(set(weekdays)) != len(weekdays):
-        reader.reject("opening_hours", "must not name a weekday twice")
-    capacities = _read_capacities(reader, body, restaurant)
-    reader.raise_as_invalid()
+        reader.reject(at(path, "opening_hours"), "must not name a weekday twice")
+    capacities = _read_capacities(reader, obj, path, restaurant)
+    if None in (effective_from, slot, duration, cutoff, capacities):
+        return None
     return Policy(version=version, effective_from=effective_from, slot_minutes=slot,
                   reservation_duration_minutes=duration, cancellation_cutoff_minutes=cutoff,
                   opening_hours=hours, capacities=capacities)
 
 
-def _read_capacities(reader: FieldReader, body: dict, restaurant: Restaurant) -> dict[str, int]:
+def _read_capacities(reader: FieldReader, obj: dict, path: str,
+                     restaurant: Restaurant) -> dict[str, int] | None:
     """`capacities`: exactly the restaurant's tables, each seating 1 to 100; kept in the
     restaurant's table order."""
-    listed_capacities = reader.read(body, "capacities", "object") or {}
+    where = at(path, "capacities")
+    listed_capacities = reader.read(obj, "capacities", "object", path) or {}
     table_ids = [table.id for table in restaurant.tables]
     if set(listed_capacities) != set(table_ids):
-        reader.reject("capacities", "must name exactly the restaurant's tables")
-    for table_id in table_ids:
-        if table_id in listed_capacities:
-            reader.integer(listed_capacities, table_id, "capacities", minimum=1, maximum=MAX_CAPACITY)
-    return {table_id: listed_capacities.get(table_id) for table_id in table_ids}
+        reader.reject(where, "must name exactly the restaurant's tables")
+        return None
+    capacities = {table_id: reader.integer(listed_capacities, table_id, where, minimum=1,
+                                           maximum=MAX_CAPACITY)
+                  for table_id in table_ids}
+    return None if None in capacities.values() else capacities
 

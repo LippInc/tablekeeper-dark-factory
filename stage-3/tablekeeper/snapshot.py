@@ -12,11 +12,12 @@ from typing import Any
 
 from . import timeutil
 from .auth import is_hash_record
-from .domain import Reservation, User, restaurant_detail
+from .domain import Policy, Reservation, Restaurant, User, published_policy, restaurant_detail
 from .errors import invalid
 from .fields import FieldReader, at
 from .idempotency import MAX_KEY_LENGTH, is_canonical_request
 from .migrations import SCHEMA, upgraded
+from .policies import read_policy
 from .records import Records
 from .store import Receipt, Scope, State
 
@@ -31,7 +32,7 @@ def export(state: State) -> dict:
         "users": [{"id": u.id, "email": u.email, "display_name": u.display_name,
                    "password_hash": u.password_hash} for u in state.users.values()],
         "tokens": dict(state.tokens),
-        "restaurants": [restaurant_detail(r) for r in state.restaurants.values()],
+        "restaurants": [_restaurant_record(state, r) for r in state.restaurants.values()],
         "reservations": [_reservation_record(r) for r in state.reservations.values()],
         "receipts": [{"user_id": user_id, "method": method, "path": path, "key": key,
                       "request": receipt.request, "response": receipt.response}
@@ -39,12 +40,20 @@ def export(state: State) -> dict:
     }}
 
 
+def _restaurant_record(state: State, restaurant: Restaurant) -> dict:
+    """The fixture's shape, with the managers and the published policies."""
+    return {**restaurant_detail(restaurant), "manager_user_ids": list(restaurant.manager_user_ids),
+            "policies": [published_policy(p) for p in state.policies.get(restaurant.id, [])]}
+
+
 def _reservation_record(reservation: Reservation) -> dict:
+    """A reservation with its revision and the version of the policy it was accepted under."""
     return {"id": reservation.id, "reference": reservation.reference,
             "user_id": reservation.user_id, "restaurant_id": reservation.restaurant_id,
             "table_ids": list(reservation.table_ids), "party_size": reservation.party_size,
             "starts_at": reservation.starts_at.isoformat(), "status": reservation.status,
-            "created_at": reservation.created_at.isoformat()}
+            "created_at": reservation.created_at.isoformat(), "revision": reservation.revision,
+            "policy_version": reservation.terms.version}
 
 
 def restore(body: Any) -> State:
@@ -71,9 +80,11 @@ def restore(body: Any) -> State:
             state.add_user(User(account.id, account.email, account.display_name, password_hash))
     state.tokens = _tokens(reader, data, records.user_ids)
     for path, item in reader.objects(data, "restaurants"):
-        records.restaurant(item, path)
+        restaurant = records.restaurant(item, path)
+        if restaurant is not None:
+            state.policies[restaurant.id] = _policies(reader, item, path, restaurant)
     state.restaurants = records.restaurants
-    reservations = _reservations(reader, records, data)
+    reservations = _reservations(reader, records, data, state)
     records.reject_overlaps(reservations)
     for reservation in reservations:
         state.put_reservation(reservation)
@@ -94,15 +105,36 @@ def _tokens(reader: FieldReader, data: dict, user_ids: set[str]) -> dict[str, st
     return tokens
 
 
-def _reservations(reader: FieldReader, records: Records, data: dict) -> list[Reservation]:
+def _policies(reader: FieldReader, item: dict, path: str, restaurant: Restaurant) -> list[Policy]:
+    """A restaurant's published policies, numbered 1, 2, ... in publication order."""
+    found = []
+    for index, (where, record) in enumerate(reader.objects(item, "policies", path), start=1):
+        version = reader.integer(record, "policy_version", where, minimum=index, maximum=index)
+        policy = read_policy(reader, record, where, restaurant, version=index)
+        if None not in (version, policy):
+            found.append(policy)
+    return found
+
+
+def _reservations(reader: FieldReader, records: Records, data: dict,
+                  state: State) -> list[Reservation]:
+    """The reservations, each at its revision under the policy it was accepted under."""
     reservations = []
     for path, item in reader.objects(data, "reservations"):
         booking = records.booking(item, path)
         starts_at, created_at = (reader.parsed(item, name, path, timeutil.parse_instant,
                                                "must be a timestamp with an offset")
                                  for name in ("starts_at", "created_at"))
-        if None not in (booking, starts_at, created_at):
-            reservations.append(booking.reservation(starts_at, created_at))
+        revision = reader.integer(item, "revision", path, minimum=1)
+        version = reader.integer(item, "policy_version", path, minimum=0)
+        if None in (booking, starts_at, created_at, revision, version):
+            continue
+        policies = [booking.restaurant.initial, *state.policies.get(booking.restaurant.id, [])]
+        if version >= len(policies):
+            reader.reject(at(path, "policy_version"), "is not a policy of its restaurant")
+            continue
+        reservations.append(booking.reservation(starts_at, created_at, revision=revision,
+                                                terms=policies[version]))
     return reservations
 
 

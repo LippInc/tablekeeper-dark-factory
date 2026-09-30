@@ -8,7 +8,20 @@ response exactly as it was sent.
 """
 from __future__ import annotations
 
+from collections.abc import Callable
 from typing import Any
+
+
+def _each(state: dict, name: str, migrate: Callable[[Any], Any]) -> Any:
+    """The records listed under `name`, each migrated; anything else is left for the import
+    to refuse."""
+    records = state.get(name)
+    return [migrate(record) for record in records] if isinstance(records, list) else records
+
+
+def _extended(record: Any, **fields: Any) -> Any:
+    """A record with new fields added; anything that is not a record is left as it is."""
+    return {**record, **fields} if isinstance(record, dict) else record
 
 
 def _schema_1_to_2(state: dict) -> dict:
@@ -22,18 +35,22 @@ def _schema_1_to_2(state: dict) -> dict:
         moved = {name: value for name, value in record.items() if name not in ("table_id", "table_ids")}
         return {**moved, "table_ids": [record["table_id"]]} if "table_id" in record else moved
 
-    def restaurant(record: Any) -> Any:
-        return {**record, "combinable": []} if isinstance(record, dict) else record
-
-    def each(name: str, migrate) -> Any:
-        records = state.get(name)
-        return [migrate(record) for record in records] if isinstance(records, list) else records
-
-    return {**state, "schema": 2, "reservations": each("reservations", reservation),
-            "restaurants": each("restaurants", restaurant)}
+    return {**state, "schema": 2, "reservations": _each(state, "reservations", reservation),
+            "restaurants": _each(state, "restaurants", lambda record: _extended(record, combinable=[]))}
 
 
-MIGRATIONS = {1: _schema_1_to_2}
+def _schema_2_to_3(state: dict) -> dict:
+    """Stage 3 adds dated policies and revisions (H6): a restaurant has managers and
+    published policies (none before), and every reservation stands at revision 1 under
+    policy 0, the exported restaurant's own rules, which it was booked under."""
+    return {**state, "schema": 3,
+            "restaurants": _each(state, "restaurants", lambda record: _extended(
+                record, manager_user_ids=[], policies=[])),
+            "reservations": _each(state, "reservations", lambda record: _extended(
+                record, revision=1, policy_version=0))}
+
+
+MIGRATIONS = {1: _schema_1_to_2, 2: _schema_2_to_3}
 SCHEMA = max(MIGRATIONS) + 1  # the schema this service exports
 
 

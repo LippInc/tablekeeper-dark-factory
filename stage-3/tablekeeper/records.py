@@ -42,13 +42,14 @@ class Booking:
     party_size: int
     status: str
 
-    def reservation(self, starts_at: datetime, created_at: datetime) -> Reservation:
-        """The booking as a reservation at revision 1 under policy 0, as every stored booking
-        starts out (seeded bookings, and bookings of an earlier stage's export)."""
+    def reservation(self, starts_at: datetime, created_at: datetime, *, revision: int = 1,
+                    terms: Policy | None = None) -> Reservation:
+        """The booking as a reservation; a seeded one stands at revision 1 under policy 0."""
         return Reservation(id=self.id, reference=self.reference, user_id=self.user_id,
                            restaurant_id=self.restaurant.id, table_ids=self.table_ids,
                            party_size=self.party_size, starts_at=starts_at, status=self.status,
-                           created_at=created_at, revision=1, terms=self.restaurant.initial)
+                           created_at=created_at, revision=revision,
+                           terms=terms or self.restaurant.initial)
 
 
 def read_opening_hours(reader: FieldReader, obj: dict, path: str) -> tuple[OpeningHours, ...]:
@@ -96,7 +97,7 @@ class Records:
             return Account(user_id, email, display_name)
         return None
 
-    def restaurant(self, item: dict, path: str) -> None:
+    def restaurant(self, item: dict, path: str) -> Restaurant | None:
         reader = self.reader
         restaurant_id = reader.identifier(item, "id", path)
         name = reader.read(item, "name", "string", path)
@@ -123,6 +124,8 @@ class Records:
             self.restaurants[restaurant_id] = Restaurant(
                 id=restaurant_id, name=name, timezone=timezone, initial=initial, tables=tables,
                 combinable=combinable, manager_user_ids=managers)
+            return self.restaurants[restaurant_id]
+        return None
 
     def _tables(self, restaurant: dict, path: str) -> tuple[tuple[Table, ...], dict[str, int]]:
         """The tables in fixture order, and the capacity of each."""
